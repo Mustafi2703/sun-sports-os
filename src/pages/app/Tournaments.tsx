@@ -286,11 +286,12 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
   onLogStats: (mId: string) => void; onShare: () => void;
 }) => {
   const [sortKey, setSortKey] = useState<"runs" | "wickets" | "battingAvg">("runs");
-  if (!tournament) return null;
   const leaderboard = useMemo(() => {
+    if (!tournament) return [];
     const rows = computeLeaderboard(tournament);
     return rows.sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
   }, [tournament, sortKey]);
+  if (!tournament) return null;
 
   return (
     <Dialog open={!!tournament} onOpenChange={onOpenChange}>
