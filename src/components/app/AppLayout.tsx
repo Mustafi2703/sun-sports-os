@@ -2,7 +2,7 @@ import { ReactNode, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
 import {
   Home, Users, Layers, CreditCard, CalendarCheck, TrendingUp, Heart, Award,
-  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, ArrowRight, HelpCircle
+  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, ArrowRight, HelpCircle, Trophy
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ const NAV = [
   { to: "/app/parent-portal", label: "Parent Portal", icon: Heart },
   { to: "/app/coach", label: "Coach Dashboard", icon: Award },
   { to: "/app/communications", label: "Communications", icon: MessageCircle },
+  { to: "/app/tournaments", label: "Tournaments", icon: Trophy },
   { to: "/app/reports", label: "Reports", icon: BarChart3 },
   { to: "/app/settings", label: "Settings", icon: Settings },
 ];
