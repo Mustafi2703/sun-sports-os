@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/landing/Navbar";
 import { HeroMockup } from "@/components/landing/HeroMockup";
+import { Reveal } from "@/components/landing/Reveal";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,25 +61,25 @@ const Landing = () => {
       {/* Pain Points */}
       <section className="py-16 sm:py-24 bg-card/30">
         <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+          <Reveal className="text-center max-w-2xl mx-auto mb-12">
             <p className="text-sm font-medium text-destructive">The reality of running an academy today</p>
             <h2 className="mt-3 font-display text-3xl sm:text-4xl font-bold text-balance">
               You didn't sign up to be a collections agent.
             </h2>
-          </div>
+          </Reveal>
           <div className="grid sm:grid-cols-3 gap-4">
             {[
               { icon: MessageCircle, title: "Chasing late fees every month", desc: "Personal WhatsApp messages, awkward conversations, and unpaid invoices piling up." },
               { icon: FileSpreadsheet, title: "Paper registers & Excel chaos", desc: "Attendance scattered across notebooks. No insight, no trends, no way to spot churn." },
               { icon: PhoneCall, title: "Parents calling for updates", desc: "Daily calls asking 'Is my child improving?' — and no easy way to show them." },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+            ].map(({ icon: Icon, title, desc }, i) => (
+              <Reveal key={title} delay={i * 120} className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
                 <div className="h-10 w-10 rounded-lg bg-destructive/15 text-destructive flex items-center justify-center">
                   <Icon className="h-5 w-5" />
                 </div>
                 <h3 className="mt-4 font-display font-semibold text-lg">{title}</h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -87,20 +88,20 @@ const Landing = () => {
       {/* Solution */}
       <section id="features" className="py-20 sm:py-28">
         <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-14">
+          <Reveal className="text-center max-w-2xl mx-auto mb-14">
             <Badge className="bg-primary/10 text-primary border-primary/20 mb-4">The fix</Badge>
             <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold text-balance">
               SportsOS fixes all of this — <span className="text-primary">automatically.</span>
             </h2>
-          </div>
+          </Reveal>
           <div className="grid md:grid-cols-2 gap-5">
             {[
               { icon: CreditCard, title: "Automated Fee Collection", desc: "Send WhatsApp payment reminders with UPI links. Auto-reconcile. Zero manual follow-up." },
               { icon: Calendar, title: "One-Tap Attendance", desc: "Coaches mark attendance from their phone in 30 seconds. Track trends. Catch churn early." },
               { icon: Users, title: "Parent Portal", desc: "Give every parent a dedicated portal to track attendance, fees, and progress. Reduce daily calls." },
               { icon: Award, title: "Coach Dashboard", desc: "Each coach sees only their batches. You see everything. Real-time, always updated." },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="group rounded-2xl border border-border bg-card p-6 hover:border-primary/40 transition-all hover:shadow-glow">
+            ].map(({ icon: Icon, title, desc }, i) => (
+              <Reveal key={title} delay={i * 100} direction={i % 2 === 0 ? "left" : "right"} className="group rounded-2xl border border-border bg-card p-6 hover:border-primary/40 transition-all hover:shadow-glow">
                 <div className="flex items-start gap-4">
                   <div className="h-11 w-11 rounded-xl gradient-primary flex items-center justify-center shrink-0 shadow-glow">
                     <Icon className="h-5 w-5 text-primary-foreground" />
@@ -113,7 +114,7 @@ const Landing = () => {
                 <div className="mt-5 rounded-lg border border-border bg-muted/20 h-28 flex items-center justify-center">
                   <Icon className="h-10 w-10 text-primary/30 group-hover:text-primary/60 transition-colors" />
                 </div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -122,12 +123,12 @@ const Landing = () => {
       {/* Cricket-specific features */}
       <section className="py-20 bg-card/30">
         <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+          <Reveal className="text-center max-w-2xl mx-auto mb-12">
             <Badge className="bg-secondary/10 text-secondary border-secondary/20 mb-4">Cricket-first</Badge>
             <h2 className="font-display text-3xl sm:text-4xl font-bold text-balance">
               Built by cricket people, for cricket academies.
             </h2>
-          </div>
+          </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { icon: Trophy, t: "Monthly Batting & Bowling Cards", d: "Standardized assessment templates with progress over time." },
@@ -136,8 +137,8 @@ const Landing = () => {
               { icon: CalendarDays, t: "Seasonal Fee & Camp Management", d: "Run summer camps, IPL specials, and term fees side by side." },
               { icon: Target, t: "Net Practice Scheduling", d: "Allocate nets per batch, avoid double-booking, sync to coaches." },
               { icon: LineChart, t: "Match Statistics & Strike Rate", d: "Auto-compute SR, average, economy across all match entries." },
-            ].map(({ icon: Icon, t, d }) => (
-              <div key={t} className="rounded-xl border border-border bg-card p-5 hover:border-primary/40 transition-colors">
+            ].map(({ icon: Icon, t, d }, i) => (
+              <Reveal key={t} delay={(i % 3) * 100} direction="scale" className="rounded-xl border border-border bg-card p-5 hover:border-primary/40 transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                     <Icon className="h-4.5 w-4.5" />
@@ -145,7 +146,7 @@ const Landing = () => {
                   <h3 className="font-display font-semibold">{t}</h3>
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground">{d}</p>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -154,11 +155,11 @@ const Landing = () => {
       {/* Case study */}
       <section id="case-study" className="py-20 sm:py-28">
         <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+          <Reveal className="text-center max-w-2xl mx-auto mb-12">
             <Badge className="bg-primary/10 text-primary border-primary/20 mb-4">Case study</Badge>
             <h2 className="font-display text-3xl sm:text-4xl font-bold text-balance">See it in action — DNA Sports, Ahmedabad</h2>
-          </div>
-          <div className="rounded-3xl border border-border bg-card overflow-hidden grid lg:grid-cols-5">
+          </Reveal>
+          <Reveal direction="scale" className="rounded-3xl border border-border bg-card overflow-hidden grid lg:grid-cols-5">
             <div className="lg:col-span-2 relative h-64 lg:h-auto bg-gradient-to-br from-primary/30 via-secondary/20 to-card flex items-center justify-center">
               <Trophy className="h-20 w-20 text-primary/60" />
               <div className="absolute bottom-4 left-4 rounded-lg glass px-3 py-1.5 text-xs">DNA Sports • Ahmedabad</div>
@@ -186,14 +187,14 @@ const Landing = () => {
                 ))}
               </div>
             </div>
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* Pricing */}
       <section id="pricing" className="py-20 sm:py-28 bg-card/30">
         <div className="container">
-          <div className="text-center max-w-2xl mx-auto mb-10">
+          <Reveal className="text-center max-w-2xl mx-auto mb-10">
             <Badge className="bg-primary/10 text-primary border-primary/20 mb-4">Pricing</Badge>
             <h2 className="font-display text-3xl sm:text-4xl font-bold text-balance">Simple, transparent pricing.</h2>
             <p className="mt-3 text-muted-foreground">No setup fees. Cancel anytime. Pay in INR.</p>
@@ -205,42 +206,49 @@ const Landing = () => {
                 Annual <Badge className="bg-primary/15 text-primary border-0">Save 2 months</Badge>
               </span>
             </div>
-          </div>
+          </Reveal>
 
           <div className="grid md:grid-cols-3 gap-5 max-w-6xl mx-auto">
-            <PricingTier
-              name="Essentials" monthly={5000} annual={50000} annualToggle={annual}
-              features={["Athlete CRM","Batch Management","Fee Tracking","Attendance","2 Admin Users","Email Support"]}
-              cta="Start Free Trial"
-            />
-            <PricingTier
-              name="Professional" monthly={10000} annual={100000} annualToggle={annual} popular
-              features={["Everything in Essentials","Coach Dashboards","Parent Portal","WhatsApp Integration","Performance Tracking","5 Users","WhatsApp Support"]}
-              cta="Start Free Trial"
-            />
-            <PricingTier
-              name="Academy Pro" monthly={20000} annual={200000} annualToggle={annual}
-              features={["Everything in Professional","Multi-Branch Support","Custom Reports","Unlimited Users","Priority Support","Dedicated Onboarding"]}
-              cta="Contact Us"
-            />
+            <Reveal delay={0}>
+              <PricingTier
+                name="Essentials" monthly={5000} annual={50000} annualToggle={annual}
+                features={["Athlete CRM","Batch Management","Fee Tracking","Attendance","2 Admin Users","Email Support"]}
+                cta="Start Free Trial"
+              />
+            </Reveal>
+            <Reveal delay={120} direction="scale">
+              <PricingTier
+                name="Professional" monthly={10000} annual={100000} annualToggle={annual} popular
+                features={["Everything in Essentials","Coach Dashboards","Parent Portal","WhatsApp Integration","Performance Tracking","5 Users","WhatsApp Support"]}
+                cta="Start Free Trial"
+              />
+            </Reveal>
+            <Reveal delay={240}>
+              <PricingTier
+                name="Academy Pro" monthly={20000} annual={200000} annualToggle={annual}
+                features={["Everything in Professional","Multi-Branch Support","Custom Reports","Unlimited Users","Priority Support","Dedicated Onboarding"]}
+                cta="Contact Us"
+              />
+            </Reveal>
           </div>
 
-          <div className="mt-8 max-w-4xl mx-auto rounded-2xl border border-primary/30 bg-primary/10 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <Reveal className="mt-8 max-w-4xl mx-auto rounded-2xl border border-primary/30 bg-primary/10 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <p className="font-display font-semibold text-foreground">🎉 Founding Member Offer</p>
               <p className="text-sm text-muted-foreground mt-1">First 10 academies get <span className="text-primary font-medium">50% off Year 1</span>. Only <span className="text-foreground font-medium">6 spots left.</span></p>
             </div>
             <Button className="bg-primary text-primary-foreground hover:bg-primary/90">Claim Spot</Button>
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* FAQ */}
       <section className="py-20 sm:py-24">
         <div className="container max-w-3xl">
-          <div className="text-center mb-10">
+          <Reveal className="text-center mb-10">
             <h2 className="font-display text-3xl sm:text-4xl font-bold">Frequently asked questions</h2>
-          </div>
+          </Reveal>
+          <Reveal>
           <Accordion type="single" collapsible className="w-full">
             {[
               { q: "Is SportsOS difficult to set up?", a: "Not at all. Most academies are live in under 30 minutes. We import your student list from Excel or WhatsApp groups, and our team helps you set up batches and fees on a free onboarding call." },
@@ -256,12 +264,13 @@ const Landing = () => {
               </AccordionItem>
             ))}
           </Accordion>
+          </Reveal>
         </div>
       </section>
 
       {/* Final CTA */}
       <section id="contact" className="py-20 sm:py-28 gradient-hero">
-        <div className="container max-w-3xl text-center">
+        <Reveal direction="scale" className="container max-w-3xl text-center">
           <h2 className="font-display text-3xl sm:text-5xl font-bold text-balance">
             Ready to run your academy <span className="text-primary">smarter?</span>
           </h2>
@@ -272,7 +281,7 @@ const Landing = () => {
             </Button>
             <Link to="/app"><Button size="lg" variant="outline">Experience Now</Button></Link>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* Footer */}
