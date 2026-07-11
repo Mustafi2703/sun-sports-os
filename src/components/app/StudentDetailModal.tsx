@@ -39,7 +39,7 @@ export const StudentDetailModal = ({ studentId, onClose }: { studentId: string |
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="font-display text-xl font-bold">{student.name}</h2>
-            <p className="text-sm text-muted-foreground">{batch.name} • Coach {coach.name} • Age {student.age}</p>
+            <p className="text-sm text-muted-foreground">{batch.name}{student.role ? ` · ${student.role}` : ""} • Coach {coach.name} • Age {student.age}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="outline">Parent: {student.parentName}</Badge>
               <Badge variant="outline" className="gap-1"><Phone className="h-3 w-3" />{student.parentPhone}</Badge>

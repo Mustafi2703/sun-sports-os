@@ -39,16 +39,16 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Demo banner */}
+      {/* Academy banner */}
       <div className="sticky top-0 z-40 bg-primary/15 border-b border-primary/30 backdrop-blur">
         <div className="px-4 sm:px-6 py-2 flex items-center justify-between gap-3 text-xs sm:text-sm">
           <p className="text-foreground truncate">
-            <span className="text-primary font-semibold">Demo Mode</span>
-            <span className="hidden sm:inline text-muted-foreground"> — all data is sample data. Start your free trial to set up your real academy.</span>
+            <span className="text-primary font-semibold">{academyName}</span>
+            <span className="hidden sm:inline text-muted-foreground"> — High Performance · SportsOS academy console</span>
           </p>
-          <Link to="/" className="shrink-0">
+          <Link to="/app/settings" className="shrink-0">
             <Button size="sm" className="h-7 bg-primary text-primary-foreground hover:bg-primary/90 text-xs">
-              Start Free Trial <ArrowRight className="ml-1.5 h-3 w-3" />
+              Import data <ArrowRight className="ml-1.5 h-3 w-3" />
             </Button>
           </Link>
         </div>
@@ -64,10 +64,10 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
             ))}
           </nav>
           <div className="mt-4 rounded-xl border border-border bg-muted/20 p-3 flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold">CC</div>
+            <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold">SS</div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{academyName}</p>
-              <p className="text-xs text-muted-foreground">Pro Plan</p>
+              <p className="text-xs text-muted-foreground">HP Program</p>
             </div>
           </div>
         </aside>
@@ -153,7 +153,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
 
       {/* Help button */}
       <a
-        href="https://wa.me/919999999999"
+        href="https://wa.me/919033002641"
         target="_blank"
         rel="noreferrer"
         className="hidden sm:flex fixed bottom-5 right-5 z-30 items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 shadow-glow hover:scale-105 transition-transform text-sm font-medium"

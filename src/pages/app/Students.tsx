@@ -76,7 +76,7 @@ const Students = () => {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{s.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{b.name} • {c.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{b.name}{s.role ? ` · ${s.role}` : ""} • {c.name}</p>
                   </div>
                 </div>
                 <div className="mt-4 flex items-center justify-between">

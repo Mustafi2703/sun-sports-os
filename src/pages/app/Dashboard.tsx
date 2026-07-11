@@ -28,7 +28,7 @@ const Dashboard = () => {
     <div className="space-y-6">
       <PageHeader
         title="Welcome back 👋"
-        description="Here's what's happening at Champions Cricket Academy today."
+        description="Here's what's happening at Sun Sports High Performance today."
       />
 
       {/* Stats */}

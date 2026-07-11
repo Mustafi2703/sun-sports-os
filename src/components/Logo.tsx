@@ -18,7 +18,8 @@ export const Logo = ({ className, showText = true }: LogoProps) => {
       </div>
       {showText && (
         <span className="font-display text-lg font-bold tracking-tight text-foreground">
-          Sports<span className="text-primary">OS</span>
+          Sun<span className="text-primary">Sports</span>
+          <span className="ml-1.5 text-xs font-semibold text-muted-foreground tracking-wide">OS</span>
         </span>
       )}
     </div>
