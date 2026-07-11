@@ -445,6 +445,7 @@ const LogStatsDialog = ({ tournament, match, onClose, onSave }: {
   tournament: Tournament; match: Match; onClose: () => void;
   onSave: (patch: Partial<Match>) => void;
 }) => {
+  const { students, initialsOf, initialsColor } = useAcademy();
   const initialStats: MatchStat[] = useMemo(() => {
     if (match.stats) return match.stats;
     return tournament.studentIds.map(id => ({
