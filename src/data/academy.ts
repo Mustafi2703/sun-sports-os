@@ -1,7 +1,5 @@
-// Legacy module — app now uses AcademyProvider + Railway API.
-// Kept for helper re-exports during transition.
+// Re-exports for helpers — live data comes from AcademyProvider + Railway API.
 export {
-  attendanceGridFor,
   initialsColor,
   initialsOf,
   inr,

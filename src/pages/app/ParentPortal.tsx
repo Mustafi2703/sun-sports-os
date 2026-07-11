@@ -1,26 +1,51 @@
-import { useState } from "react";
-import { Heart, CreditCard, Calendar, FileText, MessageCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CreditCard, Calendar, MessageCircle } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAcademy } from "@/context/AcademyContext";
+import type { AttendanceGridDay, FeePayment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const ParentPortal = () => {
-  const { students, getBatch, getCoach, attendanceGridFor, initialsOf, initialsColor, inr } = useAcademy();
+  const { students, getBatch, getCoach, initialsOf, initialsColor, inr, api } = useAcademy();
   const [view, setView] = useState("parent");
-  const student = students[0];
-  const batch = getBatch(student.batchId)!;
-  const coach = getCoach(batch.coachId)!;
-  const grid = attendanceGridFor(student.id);
+  const [studentId, setStudentId] = useState("");
+  const [grid, setGrid] = useState<AttendanceGridDay[]>([]);
+  const [payments, setPayments] = useState<FeePayment[]>([]);
+
+  useEffect(() => {
+    if (!studentId && students[0]?.id) setStudentId(students[0].id);
+  }, [students, studentId]);
+
+  useEffect(() => {
+    if (!studentId) return;
+    void api.attendanceGrid(studentId, 30).then((r) => setGrid(r.grid)).catch(() => setGrid([]));
+    void api.listPayments(studentId).then(setPayments).catch(() => setPayments([]));
+  }, [studentId, api]);
+
+  const student = students.find((s) => s.id === studentId) ?? students[0];
+  if (!student) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Parent Portal" description="No students loaded from the API yet." />
+      </div>
+    );
+  }
+
+  const batch = getBatch(student.batchId);
+  const coach = batch ? getCoach(batch.coachId) : undefined;
+  const latestPayment = payments[0];
+  const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue", overdue8: "Overdue" };
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Parent Portal"
-        description="See exactly what each parent sees in their portal."
+        description="Live preview from real student, attendance, and payment records."
         actions={
           <Tabs value={view} onValueChange={setView}>
             <TabsList>
@@ -32,14 +57,18 @@ const ParentPortal = () => {
       />
 
       {view === "admin" ? (
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-sm text-muted-foreground">Parent portal access:</p>
-          <p className="mt-2 font-display text-2xl font-bold">20 active parents</p>
-          <p className="text-xs text-muted-foreground mt-1">Average daily logins: 14 • 89% engagement</p>
+        <div className="rounded-2xl border border-border bg-card p-6 space-y-3">
+          <p className="text-sm text-muted-foreground">Parents with portal access (one per student contact)</p>
+          <p className="font-display text-2xl font-bold">{students.length} parents</p>
+          <Select value={studentId} onValueChange={setStudentId}>
+            <SelectTrigger className="max-w-sm"><SelectValue placeholder="Preview student" /></SelectTrigger>
+            <SelectContent>
+              {students.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       ) : (
         <div className="max-w-md mx-auto rounded-3xl border border-border bg-card overflow-hidden shadow-card">
-          {/* Phone-style header */}
           <div className="bg-gradient-to-br from-primary/30 to-secondary/20 p-5">
             <div className="flex items-center gap-3">
               <div className={cn("h-14 w-14 rounded-full ring-2 ring-background flex items-center justify-center font-bold text-lg", initialsColor(student.name))}>
@@ -48,38 +77,53 @@ const ParentPortal = () => {
               <div>
                 <p className="text-xs text-muted-foreground">Parent of</p>
                 <p className="font-display font-bold text-lg">{student.name}</p>
-                <p className="text-xs text-muted-foreground">{batch.name}</p>
+                <p className="text-xs text-muted-foreground">{batch?.name ?? "Unassigned"}</p>
               </div>
             </div>
           </div>
 
           <div className="p-5 space-y-5">
-            {/* Fee status */}
-            <div className="rounded-xl border border-primary/30 bg-primary/10 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-primary"><CreditCard className="h-4 w-4" /> Paid</div>
-              <p className="mt-1 text-sm">{inr(student.feeAmount)} on April 3, 2026</p>
-              <button className="mt-2 text-xs text-primary underline">Download receipt</button>
+            <div className={cn(
+              "rounded-xl border p-4",
+              student.feeStatus === "paid" ? "border-primary/30 bg-primary/10" : "border-destructive/30 bg-destructive/10"
+            )}>
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <CreditCard className="h-4 w-4" /> {FEE_LABEL[student.feeStatus] ?? student.feeStatus}
+              </div>
+              <p className="mt-1 text-sm">{inr(student.feeAmount)} monthly fee</p>
+              {latestPayment ? (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Last payment {inr(latestPayment.amount)} · {new Date(latestPayment.paidAt).toLocaleDateString("en-IN")} · {latestPayment.method}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">No payments recorded yet</p>
+              )}
             </div>
 
-            {/* Attendance */}
             <div>
-              <p className="text-sm font-medium mb-2 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> This month — {student.attendancePct}%</p>
+              <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" />
+                Last 30 days — {student.attendancePct > 0 ? `${student.attendancePct}%` : "no marks yet"}
+              </p>
               <div className="grid grid-cols-10 gap-1">
-                {grid.map((m, i) => (
-                  <div key={i} className={cn(
-                    "aspect-square rounded-sm",
-                    m === "present" && "bg-primary/80",
-                    m === "late" && "bg-amber-500/80",
-                    m === "absent" && "bg-destructive/80",
-                    m === "none" && "bg-muted/40",
-                  )} />
+                {grid.map((m) => (
+                  <div
+                    key={m.date}
+                    title={`${m.date}: ${m.status}`}
+                    className={cn(
+                      "aspect-square rounded-sm",
+                      m.status === "present" && "bg-primary/80",
+                      m.status === "late" && "bg-amber-500/80",
+                      m.status === "absent" && "bg-destructive/80",
+                      m.status === "none" && "bg-muted/40",
+                    )}
+                  />
                 ))}
               </div>
             </div>
 
-            {/* Progress */}
             <div>
-              <p className="text-sm font-medium mb-2">Progress this month</p>
+              <p className="text-sm font-medium mb-2">Progress</p>
               <div className="space-y-2">
                 {[
                   ["Batting", student.scores.batting],
@@ -95,24 +139,23 @@ const ParentPortal = () => {
               </div>
             </div>
 
-            {/* Coach note */}
-            <div className="rounded-xl border border-border bg-muted/20 p-4">
-              <p className="text-xs text-muted-foreground mb-1">Latest note from Coach {coach.name}</p>
-              <p className="text-sm italic">"Arjun's cover drive has improved significantly this month. Needs to work on yorker defense."</p>
-            </div>
-
-            {/* Upcoming */}
-            <div>
-              <p className="text-sm font-medium mb-2">Upcoming sessions</p>
-              <div className="space-y-1.5">
-                {[batch.schedule, batch.time].slice(0, 1).map((s, i) => (
-                  <div key={i} className="rounded-lg border border-border bg-muted/20 p-3 text-sm flex items-center justify-between">
-                    <span>{batch.schedule}</span>
-                    <span className="text-muted-foreground">{batch.time}</span>
-                  </div>
-                ))}
+            {coach && (
+              <div className="rounded-xl border border-border bg-muted/20 p-4">
+                <p className="text-xs text-muted-foreground mb-1">Coach</p>
+                <p className="text-sm font-medium">{coach.name}</p>
+                <p className="text-xs text-muted-foreground">{coach.specialty}</p>
               </div>
-            </div>
+            )}
+
+            {batch && (
+              <div>
+                <p className="text-sm font-medium mb-2">Batch schedule</p>
+                <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm flex items-center justify-between">
+                  <span>{batch.schedule}</span>
+                  <span className="text-muted-foreground">{batch.time}</span>
+                </div>
+              </div>
+            )}
 
             {student.feeStatus !== "paid" && (
               <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">Pay Now</Button>

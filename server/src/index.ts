@@ -225,6 +225,17 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Sun Sports API listening on :${PORT}`);
+  try {
+    await prisma.enquiry.deleteMany({ where: { parentName: "Sample Parent" } });
+    // Remove seed-era mock payments if still present
+    await prisma.feePayment.deleteMany({ where: { note: "Monthly HP fee" } });
+    const ids = (await prisma.student.findMany({ select: { id: true } })).map((s) => s.id);
+    const { recomputeAttendancePctMany } = await import("./lib/attendance.js");
+    await recomputeAttendancePctMany(ids);
+    console.log(`Synced attendance % for ${ids.length} students from real records`);
+  } catch (e) {
+    console.warn("Startup sync skipped:", e);
+  }
 });

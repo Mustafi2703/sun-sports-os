@@ -1,4 +1,5 @@
 export type FeeStatus = "paid" | "overdue1" | "overdue8";
+export type AttendanceMark = "present" | "absent" | "late" | "none";
 
 export interface Coach {
   id: string;
@@ -41,6 +42,21 @@ export interface Student {
   lastBowlingSpeed?: number[];
 }
 
+export interface AttendanceGridDay {
+  date: string;
+  status: AttendanceMark;
+}
+
+export interface FeePayment {
+  id: string;
+  studentId: string;
+  amount: number;
+  method: string;
+  month?: string | null;
+  note?: string | null;
+  paidAt: string;
+}
+
 export interface AcademySnapshot {
   academyName: string;
   coaches: Coach[];
@@ -55,6 +71,9 @@ export interface AcademySnapshot {
     overdue1Count: number;
     overdue8Count: number;
     monthlyRevenueSeries: { month: string; revenue: number }[];
+    todayAttendance?: { marked: number; present: number; absent: number };
+    attendanceByBatch?: { batch: string; batchId: string; w1: number; w2: number; w3: number; w4: number }[];
+    recentActivity?: { type: string; text: string; time: string; tone: "success" | "warning" | "info" | "default" }[];
   };
 }
 
@@ -70,7 +89,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `API ${res.status}`);
+    throw new Error((body as { error?: string }).error || `API ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -101,10 +120,22 @@ export const api = {
     request<Batch>(`/api/batches/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBatch: (id: string) =>
     request<{ ok: boolean }>(`/api/batches/${id}`, { method: "DELETE" }),
+  listPayments: (studentId?: string) => {
+    const qs = studentId ? `?studentId=${encodeURIComponent(studentId)}` : "";
+    return request<FeePayment[]>(`/api/payments${qs}`);
+  },
   createPayment: (body: { studentId: string; amount: number; method?: string; month?: string; note?: string }) =>
     request("/api/payments", { method: "POST", body: JSON.stringify(body) }),
   deletePayment: (id: string) =>
     request<{ ok: boolean }>(`/api/payments/${id}`, { method: "DELETE" }),
+  listAttendance: (q: { date?: string; batchId?: string; studentId?: string }) => {
+    const qs = "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
+    return request<{ id: string; studentId: string; status: string; date: string }[]>(`/api/attendance${qs}`);
+  },
+  attendanceGrid: (studentId: string, days = 30) =>
+    request<{ studentId: string; days: number; grid: AttendanceGridDay[] }>(
+      `/api/attendance/grid/${studentId}?days=${days}`
+    ),
   saveAttendance: (body: { date: string; batchId?: string; marks: { studentId: string; status: string }[] }) =>
     request("/api/attendance/bulk", { method: "POST", body: JSON.stringify(body) }),
   createEnquiry: (body: Record<string, unknown>) =>
@@ -123,30 +154,6 @@ export const api = {
     return res.json();
   },
 };
-
-export function seededRandom(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-}
-
-export type AttendanceMark = "present" | "absent" | "late" | "none";
-
-export function attendanceGridFor(studentId: string): AttendanceMark[] {
-  const seed = studentId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const rand = seededRandom(seed);
-  const out: AttendanceMark[] = [];
-  for (let i = 0; i < 30; i++) {
-    const r = rand();
-    if (r < 0.35) out.push("none");
-    else if (r < 0.88) out.push("present");
-    else if (r < 0.95) out.push("late");
-    else out.push("absent");
-  }
-  return out;
-}
 
 export const initialsColor = (name: string) => {
   const palette = [

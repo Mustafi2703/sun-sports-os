@@ -45,11 +45,11 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
         <div className="px-4 sm:px-6 py-2 flex items-center justify-between gap-3 text-xs sm:text-sm">
           <p className="text-foreground truncate">
             <span className="text-primary font-semibold">{academyName}</span>
-            <span className="hidden sm:inline text-muted-foreground"> — High Performance · SportsOS academy console</span>
+            <span className="hidden sm:inline text-muted-foreground"> — High Performance academy console</span>
           </p>
           <Link to="/app/settings" className="shrink-0">
             <Button size="sm" className="h-7 bg-primary text-primary-foreground hover:bg-primary/90 text-xs">
-              Import data <ArrowRight className="ml-1.5 h-3 w-3" />
+              Settings <ArrowRight className="ml-1.5 h-3 w-3" />
             </Button>
           </Link>
         </div>

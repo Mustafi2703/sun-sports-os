@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   api,
-  attendanceGridFor,
   initialsColor,
   initialsOf,
   inr,
@@ -28,12 +27,12 @@ interface AcademyContextValue {
   overdue8Count: number;
   monthlyRevenueSeries: { month: string; revenue: number }[];
   todaysSessions: { batchId: string; time: string; venue: string }[];
+  todayAttendance: { marked: number; present: number; absent: number };
   recentActivity: { type: string; text: string; time: string; tone: "success" | "warning" | "info" | "default" }[];
   attendanceByBatch: { batch: string; w1: number; w2: number; w3: number; w4: number }[];
   getCoach: (id: string) => Coach | undefined;
   getBatch: (id: string) => Batch | undefined;
   studentsInBatch: (id: string) => Student[];
-  attendanceGridFor: (id: string) => AttendanceMark[];
   initialsOf: typeof initialsOf;
   initialsColor: typeof initialsColor;
   inr: typeof inr;
@@ -74,12 +73,6 @@ export function AcademyProvider({ children }: { children: ReactNode }) {
     const coaches = snap.coaches || [];
     const agg = snap.aggregates;
 
-    const paidCount = agg?.paidCount ?? students.filter((s) => s.feeStatus === "paid").length;
-    const overdue1Count = agg?.overdue1Count ?? students.filter((s) => s.feeStatus === "overdue1").length;
-    const overdue8Count = agg?.overdue8Count ?? students.filter((s) => s.feeStatus === "overdue8").length;
-    const monthlyRevenue = agg?.monthlyRevenue ?? students.filter((s) => s.feeStatus === "paid").reduce((a, s) => a + s.feeAmount, 0);
-    const overdueAmount = agg?.overdueAmount ?? students.filter((s) => s.feeStatus !== "paid").reduce((a, s) => a + s.feeAmount, 0);
-
     return {
       loading,
       error,
@@ -88,47 +81,32 @@ export function AcademyProvider({ children }: { children: ReactNode }) {
       batches,
       coaches,
       totalStudents: agg?.totalStudents ?? students.length,
-      monthlyRevenue,
-      overdueAmount,
-      overdueCount: agg?.overdueCount ?? overdue1Count + overdue8Count,
-      paidCount,
-      overdue1Count,
-      overdue8Count,
+      monthlyRevenue: agg?.monthlyRevenue ?? 0,
+      overdueAmount: agg?.overdueAmount ?? 0,
+      overdueCount: agg?.overdueCount ?? 0,
+      paidCount: agg?.paidCount ?? 0,
+      overdue1Count: agg?.overdue1Count ?? 0,
+      overdue8Count: agg?.overdue8Count ?? 0,
       monthlyRevenueSeries: agg?.monthlyRevenueSeries ?? [],
-      todaysSessions: batches.slice(0, 3).map((b) => ({
+      todaysSessions: batches.map((b) => ({
         batchId: b.id,
         time: b.time.split("–")[0]?.trim() || b.time,
         venue: b.venue,
       })),
-      recentActivity: [
-        ...students.filter((s) => s.feeStatus === "paid").slice(0, 2).map((s) => ({
-          type: "payment",
-          text: `${s.name} — fee recorded as paid (${inr(s.feeAmount)})`,
-          time: "Today",
-          tone: "success" as const,
-        })),
-        ...students.filter((s) => s.feeStatus !== "paid").slice(0, 1).map((s) => ({
-          type: "absent",
-          text: `${s.name} has overdue fees — ${s.daysOverdue} day(s)`,
-          time: "Today",
-          tone: "warning" as const,
-        })),
-        {
-          type: "info",
-          text: "Connected to SportsOS API",
-          time: "Just now",
-          tone: "info" as const,
-        },
-      ].slice(0, 5),
-      attendanceByBatch: batches.map((b) => {
-        const list = students.filter((s) => s.batchId === b.id);
-        const avg = list.length ? Math.round(list.reduce((a, s) => a + s.attendancePct, 0) / list.length) : 85;
-        return { batch: b.name, w1: avg - 3, w2: avg - 1, w3: avg + 1, w4: Math.min(100, avg + 2) };
-      }),
+      todayAttendance: agg?.todayAttendance ?? { marked: 0, present: 0, absent: 0 },
+      recentActivity: agg?.recentActivity?.length
+        ? agg.recentActivity
+        : [{ type: "info", text: "No recent activity yet — mark attendance or record a payment.", time: "—", tone: "info" as const }],
+      attendanceByBatch: (agg?.attendanceByBatch ?? []).map((b) => ({
+        batch: b.batch,
+        w1: b.w1,
+        w2: b.w2,
+        w3: b.w3,
+        w4: b.w4,
+      })),
       getCoach: (id) => coaches.find((c) => c.id === id),
       getBatch: (id) => batches.find((b) => b.id === id),
       studentsInBatch: (id) => students.filter((s) => s.batchId === id),
-      attendanceGridFor,
       initialsOf,
       initialsColor,
       inr,
@@ -145,3 +123,5 @@ export function useAcademy() {
   if (!ctx) throw new Error("useAcademy must be used within AcademyProvider");
   return ctx;
 }
+
+export type { AttendanceMark };

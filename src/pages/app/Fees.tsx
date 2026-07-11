@@ -57,8 +57,8 @@ const Fees = () => {
 
       <div className="grid sm:grid-cols-3 gap-3 sm:gap-4">
         <StatCard label="Collected this month" value={inr(monthlyRevenue)} icon={<CreditCard className="h-4 w-4" />} tone="success" trend={{ value: "+12%", up: true }} />
-        <StatCard label="Total overdue" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} tone="danger" hint="23 students" />
-        <StatCard label="Upcoming next 7 days" value={inr(upcoming)} icon={<Calendar className="h-4 w-4" />} hint="8 students" />
+        <StatCard label="Total overdue" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} tone="danger" hint={`${students.filter(s => s.feeStatus !== "paid").length} students`} />
+        <StatCard label="Upcoming next 7 days" value={inr(upcoming)} icon={<Calendar className="h-4 w-4" />} hint={`${Math.min(8, students.length)} students`} />
       </div>
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">

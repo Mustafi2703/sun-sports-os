@@ -93,8 +93,6 @@ async function main() {
   ];
 
   for (const s of students) {
-    const battingBoost = s.role.toLowerCase().includes("batt") ? 0.5 : 0;
-    const bowlingBoost = s.role.toLowerCase().includes("bowl") ? 0.5 : 0;
     await prisma.student.create({
       data: {
         name: s.name,
@@ -108,45 +106,19 @@ async function main() {
         feeStatus: s.feeStatus,
         daysOverdue: s.daysOverdue,
         feeAmount: 15000,
-        attendancePct: 85 + Math.floor(Math.random() * 12),
-        batting: +(3.2 + battingBoost + Math.random()).toFixed(1),
-        bowling: +(3.0 + bowlingBoost + Math.random()).toFixed(1),
-        fielding: +(3.2 + Math.random()).toFixed(1),
-        fitness: +(3.3 + Math.random()).toFixed(1),
-        temperament: +(3.1 + Math.random()).toFixed(1),
+        attendancePct: 0,
+        batting: 3,
+        bowling: 3,
+        fielding: 3,
+        fitness: 3,
+        temperament: 3,
         batchId: batch.id,
-        bowlingSpeeds: s.role.toLowerCase().includes("bowl") ? [108, 112, 115, 118] : undefined,
+        bowlingSpeeds: undefined,
       },
     });
   }
 
-  // Sample payments for paid students
-  const paid = await prisma.student.findMany({ where: { feeStatus: "paid" } });
-  for (const s of paid.slice(0, 5)) {
-    await prisma.feePayment.create({
-      data: {
-        studentId: s.id,
-        amount: 15000,
-        method: "upi",
-        month: "Jul 2026",
-        note: "Monthly HP fee",
-      },
-    });
-  }
-
-  await prisma.enquiry.create({
-    data: {
-      parentName: "Sample Parent",
-      phone: "+91 98000 00000",
-      childName: "Trial Athlete",
-      childAge: 12,
-      preferredBatch: "High Performance",
-      status: "new",
-      notes: "Interested in summer trial",
-    },
-  });
-
-  console.log(`Seeded: ${coaches.length} coaches, 1 batch, ${students.length} students`);
+  console.log(`Seeded: ${coaches.length} coaches, 1 batch, ${students.length} students (no mock attendance/payments)`);
 }
 
 main()

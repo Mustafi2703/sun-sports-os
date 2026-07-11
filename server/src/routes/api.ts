@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { ageFromDob, mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
+import {
+  attendanceByBatchWeeks,
+  attendanceGrid,
+  monthlyRevenueFromPayments,
+  recentActivityFeed,
+  recomputeAttendancePctMany,
+  todayAttendanceStats,
+} from "../lib/attendance.js";
 
 export const api = Router();
 
@@ -10,18 +18,23 @@ api.get("/health", (_req, res) => {
 
 // ─── Snapshot / Dashboard ───────────────────────────────────────────
 api.get("/snapshot", async (_req, res) => {
-  const [academy, coaches, batches, students] = await Promise.all([
-    prisma.academy.findFirst(),
-    prisma.coach.findMany({ orderBy: { name: "asc" } }),
-    prisma.batch.findMany({ include: { _count: { select: { students: true } }, coach: true }, orderBy: { name: "asc" } }),
-    prisma.student.findMany({ orderBy: { name: "asc" } }),
-  ]);
+  const [academy, coaches, batches, students, monthlyRevenueSeries, recentActivity, todayAtt, attendanceByBatch] =
+    await Promise.all([
+      prisma.academy.findFirst(),
+      prisma.coach.findMany({ orderBy: { name: "asc" } }),
+      prisma.batch.findMany({ include: { _count: { select: { students: true } }, coach: true }, orderBy: { name: "asc" } }),
+      prisma.student.findMany({ orderBy: { name: "asc" } }),
+      monthlyRevenueFromPayments(),
+      recentActivityFeed(6),
+      todayAttendanceStats(),
+      attendanceByBatchWeeks(),
+    ]);
 
   const mappedStudents = students.map(mapStudent);
   const paid = mappedStudents.filter((s) => s.feeStatus === "paid");
   const overdue1 = mappedStudents.filter((s) => s.feeStatus === "overdue1");
   const overdue8 = mappedStudents.filter((s) => s.feeStatus === "overdue8");
-  const monthlyRevenue = paid.reduce((a, s) => a + s.feeAmount, 0);
+  const currentMonthRevenue = monthlyRevenueSeries[monthlyRevenueSeries.length - 1]?.revenue ?? 0;
   const overdueAmount = [...overdue1, ...overdue8].reduce((a, s) => a + s.feeAmount, 0);
 
   res.json({
@@ -32,20 +45,16 @@ api.get("/snapshot", async (_req, res) => {
     students: mappedStudents,
     aggregates: {
       totalStudents: mappedStudents.length,
-      monthlyRevenue,
+      monthlyRevenue: currentMonthRevenue,
       overdueAmount,
       overdueCount: overdue1.length + overdue8.length,
       paidCount: paid.length,
       overdue1Count: overdue1.length,
       overdue8Count: overdue8.length,
-      monthlyRevenueSeries: [
-        { month: "Feb", revenue: Math.round(monthlyRevenue * 0.88) },
-        { month: "Mar", revenue: Math.round(monthlyRevenue * 0.92) },
-        { month: "Apr", revenue: Math.round(monthlyRevenue * 0.95) },
-        { month: "May", revenue: Math.round(monthlyRevenue * 0.98) },
-        { month: "Jun", revenue: Math.round(monthlyRevenue * 1.02) },
-        { month: "Jul", revenue: monthlyRevenue },
-      ],
+      monthlyRevenueSeries,
+      todayAttendance: todayAtt,
+      attendanceByBatch,
+      recentActivity,
     },
   });
 });
@@ -321,19 +330,32 @@ api.delete("/payments/:id", async (req, res) => {
 api.get("/attendance", async (req, res) => {
   const date = req.query.date ? new Date(String(req.query.date)) : undefined;
   const batchId = req.query.batchId ? String(req.query.batchId) : undefined;
+  const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
   const rows = await prisma.attendanceRecord.findMany({
     where: {
       ...(date ? { date } : {}),
       ...(batchId ? { batchId } : {}),
+      ...(studentId ? { studentId } : {}),
     },
     orderBy: { date: "desc" },
-    take: 500,
+    take: 2000,
   });
   res.json(rows);
 });
 
+api.get("/attendance/grid/:studentId", async (req, res) => {
+  const days = Math.min(90, Number(req.query.days) || 30);
+  const grid = await attendanceGrid(req.params.studentId, days);
+  res.json({ studentId: req.params.studentId, days, grid });
+});
+
+api.get("/attendance/analytics", async (_req, res) => {
+  res.json({ byBatch: await attendanceByBatchWeeks() });
+});
+
 api.post("/attendance/bulk", async (req, res) => {
   const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
+  date.setHours(0, 0, 0, 0);
   const batchId = req.body.batchId || null;
   const marks: { studentId: string; status: string }[] = req.body.marks || [];
   if (!marks.length) return res.status(400).json({ error: "marks required" });
@@ -347,6 +369,7 @@ api.post("/attendance/bulk", async (req, res) => {
       })
     )
   );
+  await recomputeAttendancePctMany(marks.map((m) => m.studentId));
   res.json({ ok: true, count: results.length });
 });
 
