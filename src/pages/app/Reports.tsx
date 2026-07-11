@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { monthlyRevenueSeries, inr } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 
 const REPORTS = [
   { id: "rev", title: "Monthly Revenue Report", desc: "Detailed revenue breakdown with month-on-month comparison." },
@@ -14,6 +14,7 @@ const REPORTS = [
 ];
 
 const Reports = () => {
+  const { monthlyRevenueSeries, inr } = useAcademy();
   const [open, setOpen] = useState<string | null>(null);
   const r = REPORTS.find(x => x.id === open);
 

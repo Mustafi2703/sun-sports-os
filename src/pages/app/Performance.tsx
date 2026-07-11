@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { batches, students, initialsOf, initialsColor } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,7 @@ const Stars = ({ value }: { value: number }) => (
 );
 
 const Performance = () => {
+  const { batches, students, initialsOf, initialsColor } = useAcademy();
   const [batchId, setBatchId] = useState(batches[0].id);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const list = useMemo(() => students.filter(s => s.batchId === batchId), [batchId]);

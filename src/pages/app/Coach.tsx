@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Award, Calendar, Users, FileText } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { coaches, batches, students, initialsOf, initialsColor } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ const trendData = [
 ];
 
 const Coach = () => {
+  const { coaches, batches, students, initialsOf, initialsColor } = useAcademy();
   const [coachId, setCoachId] = useState(coaches[0].id);
   const coach = coaches.find(c => c.id === coachId)!;
   const myBatches = useMemo(() => batches.filter(b => b.coachId === coachId), [coachId]);

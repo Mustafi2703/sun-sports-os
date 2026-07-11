@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Academy {
+  id        String   @id @default(cuid())
+  name      String   @default("Sun Sports")
+  phone     String?
+  address   String?
+  program   String?  @default("High Performance Cricket")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Coach {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String?
+  email         String?
+  specialty     String?
+  initials      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  batches       Batch[]
+}
+
+model Batch {
+  id           String    @id @default(cuid())
+  name         String
+  ageGroup     String?
+  schedule     String?
+  time         String?
+  venue        String?
+  capacity     Int       @default(20)
+  monthlyFee   Int       @default(15000)
+  coachId      String?
+  coach        Coach?    @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  students     Student[]
+  attendance   AttendanceRecord[]
+}
+
+model Student {
+  id            String   @id @default(cuid())
+  name          String
+  dob           DateTime?
+  age           Int?
+  parentName    String?
+  parentPhone   String?
+  role          String?
+  feeStatus     String   @default("paid") // paid | overdue1 | overdue8
+  feeAmount     Int      @default(15000)
+  daysOverdue   Int      @default(0)
+  attendancePct Int      @default(90)
+  batting       Float    @default(3)
+  bowling       Float    @default(3)
+  fielding      Float    @default(3)
+  fitness       Float    @default(3)
+  temperament   Float    @default(3)
+  joinDate      DateTime?
+  medicalNotes  String?
+  bowlingSpeeds Json?
+  batchId       String?
+  batch         Batch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  payments      FeePayment[]
+  attendance    AttendanceRecord[]
+  notes         CoachNote[]
+}
+
+model FeePayment {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount      Int
+  method      String   @default("cash") // cash | upi | cheque | online
+  month       String?
+  paidAt      DateTime @default(now())
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+model AttendanceRecord {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batchId     String?
+  batch       Batch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  date        DateTime @db.Date
+  status      String   // present | absent | late
+  createdAt   DateTime @default(now())
+
+  @@unique([studentId, date])
+}
+
+model CoachNote {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  note        String
+  author      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Enquiry {
+  id            String   @id @default(cuid())
+  parentName    String
+  phone         String
+  childName     String?
+  childAge      Int?
+  preferredBatch String?
+  status        String   @default("new") // new | trial | enrolled | lost
+  notes         String?
+  trialDate     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

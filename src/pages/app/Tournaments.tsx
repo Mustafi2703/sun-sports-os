@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { tournaments as initialTournaments, Tournament, Match, MatchFormat, MatchStat, computeLeaderboard, studentRole } from "@/data/tournaments";
-import { students, initialsOf, initialsColor } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -25,6 +25,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const Tournaments = () => {
+  const { students, initialsOf, initialsColor } = useAcademy();
   const [list, setList] = useState<Tournament[]>(initialTournaments);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -285,12 +286,13 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
   tournament: Tournament | null; onOpenChange: (o: boolean) => void;
   onLogStats: (mId: string) => void; onShare: () => void;
 }) => {
+  const { students, initialsOf, initialsColor } = useAcademy();
   const [sortKey, setSortKey] = useState<"runs" | "wickets" | "battingAvg">("runs");
   const leaderboard = useMemo(() => {
     if (!tournament) return [];
-    const rows = computeLeaderboard(tournament);
+    const rows = computeLeaderboard(tournament, students);
     return rows.sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
-  }, [tournament, sortKey]);
+  }, [tournament, sortKey, students]);
   if (!tournament) return null;
 
   return (
@@ -318,7 +320,7 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
               {tournament.studentIds.map(id => {
                 const s = students.find(st => st.id === id);
                 if (!s) return null;
-                const role = studentRole(s);
+                const role = studentRole(s ?? undefined);
                 return (
                   <div key={id} className="flex items-center gap-2.5 p-2.5 rounded-lg border border-border bg-card/50">
                     <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>
@@ -536,8 +538,9 @@ const LogStatsDialog = ({ tournament, match, onClose, onSave }: {
 
 // ---------------- Share Dialog ----------------
 const ShareDialog = ({ tournament, onOpenChange }: { tournament: Tournament | null; onOpenChange: (o: boolean) => void; }) => {
+  const { students } = useAcademy();
   if (!tournament) return null;
-  const lb = computeLeaderboard(tournament).sort((a, b) => b.runs - a.runs).slice(0, 3);
+  const lb = computeLeaderboard(tournament, students).sort((a, b) => b.runs - a.runs).slice(0, 3);
   const wins = tournament.matches.filter(m => m.result === "won").length;
   const completed = tournament.matches.filter(m => m.completed).length;
 

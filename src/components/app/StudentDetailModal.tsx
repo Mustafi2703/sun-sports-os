@@ -2,18 +2,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { MessageCircle, Phone, Calendar } from "lucide-react";
-import { students, getBatch, getCoach, attendanceGridFor, initialsOf, initialsColor, inr } from "@/data/academy";
+import { MessageCircle, Phone, Calendar, Pencil, Trash2 } from "lucide-react";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
+import type { Student } from "@/lib/api";
 
-export const StudentDetailModal = ({ studentId, onClose }: { studentId: string | null; onClose: () => void }) => {
-  const student = studentId ? students.find(s => s.id === studentId) : null;
+export const StudentDetailModal = ({
+  studentId,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  studentId: string | null;
+  onClose: () => void;
+  onEdit?: (s: Student) => void;
+  onDelete?: (s: Student) => void;
+}) => {
+  const { students, getBatch, getCoach, attendanceGridFor, initialsOf, initialsColor, inr } = useAcademy();
+  const student = studentId ? students.find((s) => s.id === studentId) : null;
   if (!student) return <Dialog open={false} onOpenChange={onClose}><DialogContent /></Dialog>;
-  const batch = getBatch(student.batchId)!;
-  const coach = getCoach(batch.coachId)!;
+  const batch = getBatch(student.batchId);
+  const coach = batch ? getCoach(batch.coachId) : undefined;
   const grid = attendanceGridFor(student.id);
 
-  const feeHistory = ["Jan","Feb","Mar","Apr","May","Jun"].map((m, i) => ({
+  const feeHistory = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m, i) => ({
     month: m,
     paid: i < 4 || (i === 4 && student.feeStatus === "paid"),
     amount: student.feeAmount,
@@ -25,6 +37,8 @@ export const StudentDetailModal = ({ studentId, onClose }: { studentId: string |
     ["Fielding", student.scores.fielding],
     ["Fitness", student.scores.fitness],
   ];
+
+  const wa = student.parentPhone.replace(/\D/g, "").replace(/^91/, "");
 
   return (
     <Dialog open={!!studentId} onOpenChange={onClose}>
@@ -39,23 +53,39 @@ export const StudentDetailModal = ({ studentId, onClose }: { studentId: string |
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="font-display text-xl font-bold">{student.name}</h2>
-            <p className="text-sm text-muted-foreground">{batch.name}{student.role ? ` · ${student.role}` : ""} • Coach {coach.name} • Age {student.age}</p>
+            <p className="text-sm text-muted-foreground">
+              {batch?.name ?? "Unassigned"}{student.role ? ` · ${student.role}` : ""}
+              {coach ? ` • Coach ${coach.name}` : ""} • Age {student.age}
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="outline">Parent: {student.parentName}</Badge>
               <Badge variant="outline" className="gap-1"><Phone className="h-3 w-3" />{student.parentPhone}</Badge>
             </div>
           </div>
-          <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 hidden sm:inline-flex">
-            <MessageCircle className="h-4 w-4 mr-1.5" /> WhatsApp
-          </Button>
+          <div className="hidden sm:flex gap-2">
+            {onEdit && (
+              <Button size="sm" variant="outline" onClick={() => onEdit(student)}>
+                <Pencil className="h-4 w-4 mr-1.5" /> Edit
+              </Button>
+            )}
+            {onDelete && (
+              <Button size="sm" variant="outline" className="text-destructive" onClick={() => onDelete(student)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+            <a href={`https://wa.me/91${wa}`} target="_blank" rel="noreferrer">
+              <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                <MessageCircle className="h-4 w-4 mr-1.5" /> WhatsApp
+              </Button>
+            </a>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-5 pt-2">
-          {/* Fee history */}
           <section>
             <h3 className="font-display font-semibold mb-3">Fee history (last 6 months)</h3>
             <div className="space-y-1.5">
-              {feeHistory.map(f => (
+              {feeHistory.map((f) => (
                 <div key={f.month} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
                   <span className="text-sm">{f.month} 2026</span>
                   <div className="flex items-center gap-2">
@@ -69,7 +99,6 @@ export const StudentDetailModal = ({ studentId, onClose }: { studentId: string |
             </div>
           </section>
 
-          {/* Attendance grid */}
           <section>
             <h3 className="font-display font-semibold mb-3 flex items-center gap-2"><Calendar className="h-4 w-4" /> Last 30 days</h3>
             <div className="grid grid-cols-10 gap-1.5">
@@ -79,44 +108,28 @@ export const StudentDetailModal = ({ studentId, onClose }: { studentId: string |
                   className={cn(
                     "aspect-square rounded",
                     m === "present" && "bg-primary/80",
-                    m === "late" && "bg-amber-500/80",
                     m === "absent" && "bg-destructive/80",
-                    m === "none" && "bg-muted/40",
+                    m === "late" && "bg-amber-500/80",
+                    m === "none" && "bg-muted"
                   )}
-                  title={`Day ${i+1}: ${m}`}
+                  title={m}
                 />
               ))}
             </div>
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-primary/80" /> Present</span>
-              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-amber-500/80" /> Late</span>
-              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-destructive/80" /> Absent</span>
-              <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-muted/40" /> No session</span>
-            </div>
-            <p className="mt-2 text-sm">Attendance this month: <span className="text-primary font-semibold">{student.attendancePct}%</span></p>
           </section>
 
-          {/* Performance */}
           <section className="md:col-span-2">
-            <h3 className="font-display font-semibold mb-3">Performance</h3>
-            <div className="grid sm:grid-cols-2 gap-3">
-              {scoreRows.map(([label, val]) => (
-                <div key={label} className="rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm">{label}</span>
-                    <span className="text-sm font-semibold text-primary">{val.toFixed(1)} / 5</span>
+            <h3 className="font-display font-semibold mb-3">Performance scores</h3>
+            <div className="space-y-3">
+              {scoreRows.map(([label, score]) => (
+                <div key={label}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>{label}</span>
+                    <span className="text-muted-foreground">{score}/5</span>
                   </div>
-                  <Progress value={val * 20} className="h-1.5" />
+                  <Progress value={(score / 5) * 100} className="h-2" />
                 </div>
               ))}
-            </div>
-          </section>
-
-          <section className="md:col-span-2">
-            <h3 className="font-display font-semibold mb-2">Coach notes</h3>
-            <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm">
-              <p className="text-muted-foreground italic">"{student.name.split(' ')[0]}'s technique has improved significantly this month. Focus area for next 2 weeks: defensive footwork against full-length deliveries."</p>
-              <p className="mt-2 text-xs text-muted-foreground">— Coach {coach.name}, 3 days ago</p>
             </div>
           </section>
         </div>

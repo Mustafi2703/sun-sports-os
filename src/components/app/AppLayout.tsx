@@ -7,7 +7,7 @@ import {
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { academyName } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -34,6 +34,7 @@ const MOBILE_NAV = [
 ];
 
 export const AppLayout = ({ children }: { children: ReactNode }) => {
+  const { academyName } = useAcademy();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 

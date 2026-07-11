@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Calendar, Check, X, Clock, MessageCircle, Save } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { batches, students, getBatch, attendanceByBatch, initialsOf, initialsColor } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -11,12 +11,17 @@ import { cn } from "@/lib/utils";
 type Mark = "present" | "absent" | "late";
 
 const Attendance = () => {
+  const { batches, students, getBatch, attendanceByBatch, initialsOf, initialsColor, api, refresh } = useAcademy();
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
-  const [batchId, setBatchId] = useState(batches[0].id);
+  const [batchId, setBatchId] = useState("");
   const [marks, setMarks] = useState<Record<string, Mark>>({});
 
-  const batchStudents = useMemo(() => students.filter(s => s.batchId === batchId), [batchId]);
+  useEffect(() => {
+    if (!batchId && batches[0]?.id) setBatchId(batches[0].id);
+  }, [batches, batchId]);
+
+  const batchStudents = useMemo(() => students.filter(s => s.batchId === batchId), [batchId, students]);
 
   const set = (id: string, mark: Mark) => setMarks(prev => ({ ...prev, [id]: mark }));
 
@@ -25,6 +30,21 @@ const Attendance = () => {
     batchStudents.forEach(s => { next[s.id] = "present"; });
     setMarks(next);
     toast.success(`All ${batchStudents.length} students marked present`);
+  };
+
+  const saveAttendance = async () => {
+    const payload = Object.entries(marks).map(([studentId, status]) => ({ studentId, status }));
+    if (!payload.length) {
+      toast.error("Mark at least one student");
+      return;
+    }
+    try {
+      await api.saveAttendance({ date, batchId, marks: payload });
+      toast.success(`Saved attendance for ${payload.length} students`);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    }
   };
 
   const atRisk = students.filter(s => s.attendancePct < 70).slice(0, 5);
@@ -51,7 +71,7 @@ const Attendance = () => {
         <Button onClick={markAllPresent} variant="outline">
           <Check className="h-4 w-4 mr-1.5" /> Mark All Present
         </Button>
-        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => toast.success("Attendance saved")}>
+        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => void saveAttendance()}>
           <Save className="h-4 w-4 mr-1.5" /> Save
         </Button>
       </div>

@@ -9,7 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
-import { students, getBatch, monthlyRevenue, overdueAmount, inr } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +21,7 @@ const FEE_BADGES: Record<string, string> = {
 const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue 1-7d", overdue8: "Overdue 8+d" };
 
 const Fees = () => {
+  const { students, getBatch, monthlyRevenue, overdueAmount, inr, api, refresh } = useAcademy();
   const [tab, setTab] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewIds, setPreviewIds] = useState<string[] | null>(null);
@@ -28,7 +29,7 @@ const Fees = () => {
   const filtered = useMemo(() => students.filter(s => {
     if (tab === "all") return true;
     return s.feeStatus === tab;
-  }), [tab]);
+  }), [tab, students]);
 
   const upcoming = students.slice(0, 8).reduce((a, s) => a + s.feeAmount, 0);
 
@@ -39,6 +40,16 @@ const Fees = () => {
   };
 
   const overdueIds = students.filter(s => s.feeStatus !== "paid").map(s => s.id);
+
+  const recordPayment = async (studentId: string, amount: number) => {
+    try {
+      await api.createPayment({ studentId, amount, method: "cash", month: "Jul 2026", note: "Manual entry" });
+      toast.success("Payment recorded");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Payment failed");
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -87,23 +98,25 @@ const Fees = () => {
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.map(s => {
-                const b = getBatch(s.batchId)!;
+                const b = getBatch(s.batchId);
                 return (
                   <tr key={s.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3"><Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggle(s.id)} /></td>
                     <td className="px-4 py-3 font-medium">{s.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{b.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{b?.name ?? "—"}</td>
                     <td className="px-4 py-3 font-medium">{inr(s.feeAmount)}</td>
                     <td className="px-4 py-3"><Badge variant="outline" className={FEE_BADGES[s.feeStatus]}>{FEE_LABEL[s.feeStatus]}</Badge></td>
                     <td className={cn("px-4 py-3", s.feeStatus === "overdue8" ? "text-destructive font-medium" : "text-muted-foreground")}>
                       {s.daysOverdue > 0 ? `${s.daysOverdue}d` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      {s.feeStatus !== "paid" ? (
-                        <Button size="sm" variant="outline" onClick={() => setPreviewIds([s.id])}>Send Reminder</Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                    <td className="px-4 py-3 text-right space-x-2">
+                      {s.feeStatus !== "paid" && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => void recordPayment(s.id, s.feeAmount)}>Record payment</Button>
+                          <Button size="sm" variant="outline" onClick={() => setPreviewIds([s.id])}>Remind</Button>
+                        </>
                       )}
+                      {s.feeStatus === "paid" && <span className="text-xs text-muted-foreground">Paid</span>}
                     </td>
                   </tr>
                 );
@@ -113,14 +126,16 @@ const Fees = () => {
         </div>
       </div>
 
-      <ReminderModal ids={previewIds} onClose={() => { setPreviewIds(null); setSelected(new Set()); }} />
+      <ReminderModal ids={previewIds} students={students} onClose={() => { setPreviewIds(null); setSelected(new Set()); }} />
     </div>
   );
 };
 
-const ReminderModal = ({ ids, onClose }: { ids: string[] | null; onClose: () => void }) => {
+const ReminderModal = ({ ids, students, onClose }: { ids: string[] | null; students: { id: string; name: string; feeAmount: number; daysOverdue: number; parentName: string }[]; onClose: () => void }) => {
   if (!ids) return null;
-  const sample = students.find(s => s.id === ids[0])!;
+  const sample = students.find(s => s.id === ids[0]);
+  if (!sample) return null;
+  const amount = "₹" + sample.feeAmount.toLocaleString("en-IN");
   return (
     <Dialog open={!!ids} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
@@ -129,13 +144,13 @@ const ReminderModal = ({ ids, onClose }: { ids: string[] | null; onClose: () => 
         </DialogHeader>
         <div className="rounded-2xl bg-emerald-950/40 border border-emerald-700/30 p-4">
           <div className="rounded-lg bg-emerald-900/40 p-3 text-sm text-foreground/90 leading-relaxed">
-            Hi <span className="font-semibold">{sample.parentName}</span>, this is a friendly reminder that <span className="font-semibold">{sample.name}'s</span> fee of <span className="font-semibold">{inr(sample.feeAmount)}</span> for June 2026 is overdue.
+            Hi <span className="font-semibold">{sample.parentName}</span>, this is a friendly reminder that <span className="font-semibold">{sample.name}'s</span> fee of <span className="font-semibold">{amount}</span> for July 2026 is overdue.
             <br /><br />
             Please pay at your earliest convenience:
             <br />
             <span className="inline-block mt-2 text-emerald-300 underline">[Pay Now via UPI →]</span>
             <br /><br />
-            Champions Cricket Academy
+            Sun Sports — High Performance
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -143,7 +158,7 @@ const ReminderModal = ({ ids, onClose }: { ids: string[] | null; onClose: () => 
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => { toast.success(`${ids.length} reminder${ids.length>1?'s':''} sent via WhatsApp`); onClose(); }}>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => { toast.success(`${ids.length} reminder${ids.length>1?'s':''} queued (Meta Business connection pending)`); onClose(); }}>
             <Send className="h-4 w-4 mr-1.5" /> Confirm & Send
           </Button>
         </DialogFooter>

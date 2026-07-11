@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { Search, Grid3x3, List, MessageCircle, Eye } from "lucide-react";
+import { Search, Grid3x3, List, MessageCircle, Eye, Plus, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { students, batches, getBatch, getCoach, initialsOf, initialsColor, inr } from "@/data/academy";
 import { StudentDetailModal } from "@/components/app/StudentDetailModal";
+import { StudentFormDialog, type StudentFormValues } from "@/components/app/StudentFormDialog";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import type { Student } from "@/lib/api";
 
 const FEE_BADGES: Record<string, string> = {
   paid: "bg-primary/15 text-primary border-primary/30",
@@ -17,33 +20,86 @@ const FEE_BADGES: Record<string, string> = {
 const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue", overdue8: "Critical" };
 
 const Students = () => {
+  const {
+    students, batches, getBatch, getCoach, initialsOf, initialsColor, inr, api, refresh, loading,
+  } = useAcademy();
   const [q, setQ] = useState("");
   const [batchFilter, setBatchFilter] = useState("all");
   const [feeFilter, setFeeFilter] = useState("all");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Student | null | undefined>(undefined); // undefined=closed, null=create
+  const [busy, setBusy] = useState(false);
 
-  const filtered = useMemo(() => students.filter(s => {
+  const filtered = useMemo(() => students.filter((s) => {
     if (q && !s.name.toLowerCase().includes(q.toLowerCase())) return false;
     if (batchFilter !== "all" && s.batchId !== batchFilter) return false;
     if (feeFilter !== "all" && s.feeStatus !== feeFilter) return false;
     return true;
-  }), [q, batchFilter, feeFilter]);
+  }), [q, batchFilter, feeFilter, students]);
+
+  const saveStudent = async (values: StudentFormValues) => {
+    setBusy(true);
+    try {
+      const body = {
+        name: values.name.trim(),
+        dob: values.dob || undefined,
+        parentName: values.parentName,
+        parentPhone: values.parentPhone,
+        batchId: values.batchId || undefined,
+        role: values.role,
+        feeStatus: values.feeStatus as Student["feeStatus"],
+        feeAmount: Number(values.feeAmount) || 15000,
+        daysOverdue: Number(values.daysOverdue) || 0,
+        joinDate: values.joinDate || undefined,
+        medicalNotes: values.medicalNotes,
+      };
+      if (editing) await api.updateStudent(editing.id, body);
+      else await api.createStudent(body);
+      toast.success(editing ? "Student updated" : "Student added");
+      setEditing(undefined);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeStudent = async (s: Student) => {
+    if (!confirm(`Delete ${s.name}? This cannot be undone.`)) return;
+    try {
+      await api.deleteStudent(s.id);
+      toast.success("Student deleted");
+      if (openId === s.id) setOpenId(null);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Students" description={`${students.length} active athletes across ${batches.length} batches.`} />
+      <PageHeader
+        title="Students"
+        description={loading ? "Loading…" : `${students.length} active athletes across ${batches.length} batches.`}
+        actions={
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setEditing(null)}>
+            <Plus className="h-4 w-4 mr-1.5" /> Add student
+          </Button>
+        }
+      />
 
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search students..." value={q} onChange={e => setQ(e.target.value)} className="pl-9" />
+          <Input placeholder="Search students..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" />
         </div>
         <Select value={batchFilter} onValueChange={setBatchFilter}>
           <SelectTrigger className="sm:w-44"><SelectValue placeholder="Batch" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All batches</SelectItem>
-            {batches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+            {batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={feeFilter} onValueChange={setFeeFilter}>
@@ -62,12 +118,15 @@ const Students = () => {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState />
+        <div className="rounded-2xl border border-dashed border-border bg-card/50 py-16 text-center">
+          <p className="font-display font-semibold">No students match your filters</p>
+          <Button className="mt-4" variant="outline" onClick={() => setEditing(null)}>Add student</Button>
+        </div>
       ) : view === "grid" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filtered.map(s => {
-            const b = getBatch(s.batchId)!;
-            const c = getCoach(b.coachId)!;
+          {filtered.map((s) => {
+            const b = getBatch(s.batchId);
+            const c = b ? getCoach(b.coachId) : undefined;
             return (
               <div key={s.id} className="rounded-2xl border border-border bg-card p-4 hover:border-primary/40 transition-colors">
                 <div className="flex items-start gap-3">
@@ -76,19 +135,22 @@ const Students = () => {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{s.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{b.name}{s.role ? ` · ${s.role}` : ""} • {c.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{b?.name ?? "Unassigned"}{s.role ? ` · ${s.role}` : ""}{c ? ` • ${c.name}` : ""}</p>
                   </div>
                 </div>
                 <div className="mt-4 flex items-center justify-between">
                   <Badge variant="outline" className={cn("text-[10px]", FEE_BADGES[s.feeStatus])}>{FEE_LABEL[s.feeStatus]} • {inr(s.feeAmount)}</Badge>
                   <span className={cn("text-xs font-medium", s.attendancePct < 70 ? "text-destructive" : "text-primary")}>{s.attendancePct}%</span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid grid-cols-3 gap-2">
                   <Button size="sm" variant="outline" className="text-xs" onClick={() => setOpenId(s.id)}>
                     <Eye className="h-3 w-3 mr-1" /> View
                   </Button>
-                  <Button size="sm" variant="outline" className="text-xs">
-                    <MessageCircle className="h-3 w-3 mr-1" /> Message
+                  <Button size="sm" variant="outline" className="text-xs" onClick={() => setEditing(s)}>
+                    <Pencil className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs text-destructive" onClick={() => void removeStudent(s)}>
+                    <Trash2 className="h-3 w-3" />
                   </Button>
                 </div>
               </div>
@@ -108,8 +170,8 @@ const Students = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(s => {
-                const b = getBatch(s.batchId)!;
+              {filtered.map((s) => {
+                const b = getBatch(s.batchId);
                 return (
                   <tr key={s.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
@@ -118,11 +180,13 @@ const Students = () => {
                         <span className="font-medium">{s.name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{b.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{b?.name ?? "—"}</td>
                     <td className="px-4 py-3"><Badge variant="outline" className={FEE_BADGES[s.feeStatus]}>{FEE_LABEL[s.feeStatus]}</Badge></td>
                     <td className={cn("px-4 py-3 font-medium", s.attendancePct < 70 ? "text-destructive" : "text-primary")}>{s.attendancePct}%</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right space-x-2">
                       <Button size="sm" variant="outline" onClick={() => setOpenId(s.id)}>View</Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditing(s)}>Edit</Button>
+                      <Button size="sm" variant="outline" className="text-destructive" onClick={() => void removeStudent(s)}>Delete</Button>
                     </td>
                   </tr>
                 );
@@ -132,17 +196,23 @@ const Students = () => {
         </div>
       )}
 
-      <StudentDetailModal studentId={openId} onClose={() => setOpenId(null)} />
+      <StudentDetailModal
+        studentId={openId}
+        onClose={() => setOpenId(null)}
+        onEdit={(s) => { setOpenId(null); setEditing(s); }}
+        onDelete={(s) => void removeStudent(s)}
+      />
+
+      <StudentFormDialog
+        open={editing !== undefined}
+        onClose={() => setEditing(undefined)}
+        student={editing ?? null}
+        batches={batches}
+        onSubmit={saveStudent}
+        busy={busy}
+      />
     </div>
   );
 };
-
-const EmptyState = () => (
-  <div className="rounded-2xl border border-dashed border-border bg-card/50 py-16 text-center">
-    <div className="text-5xl mb-3">🏏</div>
-    <p className="font-display font-semibold">No students match your filters</p>
-    <p className="text-sm text-muted-foreground mt-1">Try clearing your filters or adding a new student.</p>
-  </div>
-);
 
 export default Students;

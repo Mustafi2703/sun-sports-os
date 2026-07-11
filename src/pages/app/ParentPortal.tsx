@@ -5,10 +5,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { students, getBatch, getCoach, attendanceGridFor, initialsOf, initialsColor, inr } from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
 
 const ParentPortal = () => {
+  const { students, getBatch, getCoach, attendanceGridFor, initialsOf, initialsColor, inr } = useAcademy();
   const [view, setView] = useState("parent");
   const student = students[0];
   const batch = getBatch(student.batchId)!;

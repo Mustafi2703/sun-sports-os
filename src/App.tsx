@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AcademyProvider } from "@/context/AcademyContext";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { AppLayout } from "./components/app/AppLayout";
@@ -26,25 +27,26 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/app" element={<AppLayout><Dashboard /></AppLayout>} />
-          <Route path="/app/students" element={<AppLayout><Students /></AppLayout>} />
-          <Route path="/app/batches" element={<AppLayout><Batches /></AppLayout>} />
-          <Route path="/app/fees" element={<AppLayout><Fees /></AppLayout>} />
-          <Route path="/app/attendance" element={<AppLayout><Attendance /></AppLayout>} />
-          <Route path="/app/performance" element={<AppLayout><Performance /></AppLayout>} />
-          <Route path="/app/parent-portal" element={<AppLayout><ParentPortal /></AppLayout>} />
-          <Route path="/app/coach" element={<AppLayout><Coach /></AppLayout>} />
-          <Route path="/app/communications" element={<AppLayout><Communications /></AppLayout>} />
-          <Route path="/app/reports" element={<AppLayout><Reports /></AppLayout>} />
-          <Route path="/app/tournaments" element={<AppLayout><Tournaments /></AppLayout>} />
-          <Route path="/app/settings" element={<AppLayout><AppSettings /></AppLayout>} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <AcademyProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/app" element={<AppLayout><Dashboard /></AppLayout>} />
+            <Route path="/app/students" element={<AppLayout><Students /></AppLayout>} />
+            <Route path="/app/batches" element={<AppLayout><Batches /></AppLayout>} />
+            <Route path="/app/fees" element={<AppLayout><Fees /></AppLayout>} />
+            <Route path="/app/attendance" element={<AppLayout><Attendance /></AppLayout>} />
+            <Route path="/app/performance" element={<AppLayout><Performance /></AppLayout>} />
+            <Route path="/app/parent-portal" element={<AppLayout><ParentPortal /></AppLayout>} />
+            <Route path="/app/coach" element={<AppLayout><Coach /></AppLayout>} />
+            <Route path="/app/communications" element={<AppLayout><Communications /></AppLayout>} />
+            <Route path="/app/reports" element={<AppLayout><Reports /></AppLayout>} />
+            <Route path="/app/tournaments" element={<AppLayout><Tournaments /></AppLayout>} />
+            <Route path="/app/settings" element={<AppLayout><AppSettings /></AppLayout>} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AcademyProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

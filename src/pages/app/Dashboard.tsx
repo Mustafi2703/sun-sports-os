@@ -4,17 +4,18 @@ import { StatCard } from "@/components/app/StatCard";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  totalStudents, monthlyRevenue, overdueAmount, overdueCount,
-  paidCount, overdue1Count, overdue8Count, monthlyRevenueSeries,
-  todaysSessions, getBatch, getCoach, recentActivity, inr, batches
-} from "@/data/academy";
+import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--warning))", "hsl(var(--destructive))"];
 
 const Dashboard = () => {
+  const {
+    totalStudents, monthlyRevenue, overdueAmount, overdueCount,
+    paidCount, overdue1Count, overdue8Count, monthlyRevenueSeries,
+    todaysSessions, getBatch, getCoach, recentActivity, inr, batches, academyName,
+  } = useAcademy();
   const todayExpected = todaysSessions.reduce((a, s) => a + (getBatch(s.batchId)?.studentCount ?? 0), 0);
   const present = Math.round(todayExpected * 0.93);
 
@@ -28,7 +29,7 @@ const Dashboard = () => {
     <div className="space-y-6">
       <PageHeader
         title="Welcome back 👋"
-        description="Here's what's happening at Sun Sports High Performance today."
+        description={`Here's what's happening at ${academyName} High Performance today.`}
       />
 
       {/* Stats */}
