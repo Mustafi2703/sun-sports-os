@@ -21,7 +21,7 @@ const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue", o
 
 const Students = () => {
   const {
-    students, batches, getBatch, getCoach, initialsOf, initialsColor, inr, api, refresh, loading,
+    students, batches, coaches, getBatch, getCoach, initialsOf, initialsColor, inr, api, refresh, loading,
   } = useAcademy();
   const [q, setQ] = useState("");
   const [batchFilter, setBatchFilter] = useState("all");
@@ -208,6 +208,7 @@ const Students = () => {
         onClose={() => setEditing(undefined)}
         student={editing ?? null}
         batches={batches}
+        coaches={coaches}
         onSubmit={saveStudent}
         busy={busy}
       />

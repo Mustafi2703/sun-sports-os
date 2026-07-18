@@ -41,13 +41,14 @@ export const Navbar = () => {
           ))}
         </nav>
 
-        <div className="hidden md:flex items-center gap-3">
-          <Link to="/app">
-            <Button variant="outline" size="sm">Experience Now</Button>
+        <div className="hidden md:flex items-center gap-2">
+          <Link to="/parent/login"><Button variant="ghost" size="sm">Parent</Button></Link>
+          <Link to="/coach/login"><Button variant="ghost" size="sm">Coach</Button></Link>
+          <Link to="/app/login">
+            <Button variant="default" size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-glow">
+              Team login
+            </Button>
           </Link>
-          <Button variant="default" size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-glow">
-            Start Free Trial
-          </Button>
         </div>
 
         <button className="md:hidden p-2 text-foreground" onClick={() => setOpen(!open)} aria-label="Toggle menu">
@@ -61,10 +62,15 @@ export const Navbar = () => {
             {links.map(l => (
               <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="text-sm text-muted-foreground py-2">{l.label}</a>
             ))}
-            <Link to="/app" onClick={() => setOpen(false)}>
-              <Button variant="outline" className="w-full">Experience Now</Button>
+            <Link to="/parent/login" onClick={() => setOpen(false)}>
+              <Button variant="outline" className="w-full">Parent portal</Button>
             </Link>
-            <Button className="w-full bg-primary text-primary-foreground">Start Free Trial</Button>
+            <Link to="/coach/login" onClick={() => setOpen(false)}>
+              <Button variant="outline" className="w-full">Coach portal</Button>
+            </Link>
+            <Link to="/app/login" onClick={() => setOpen(false)}>
+              <Button className="w-full bg-primary text-primary-foreground">Team login</Button>
+            </Link>
           </div>
         </div>
       )}

@@ -123,3 +123,39 @@ model Enquiry {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+/// Portal login accounts — phone + PIN (same phone can be parent AND coach)
+model User {
+  id          String   @id @default(cuid())
+  phone       String   /// normalized digits (last 10)
+  pinHash     String
+  role        String   /// parent | coach | admin
+  name        String
+  coachId     String?  /// links coach role to Coach row
+  parentPhone String?  /// original parent phone string for student lookup
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([phone, role])
+  @@index([role])
+  @@index([coachId])
+  @@index([phone])
+}
+
+/// Tournaments — matches + stats stored as JSON for flexibility
+model Tournament {
+  id          String   @id @default(cuid())
+  name        String
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  format      String   @default("T20")
+  venue       String?
+  status      String   @default("upcoming") /// upcoming | ongoing | completed
+  opponents   Json     /// string[]
+  studentIds  Json     /// string[]
+  matches     Json     /// Match[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+}

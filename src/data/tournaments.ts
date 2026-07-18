@@ -47,7 +47,18 @@ export interface Tournament {
 export const tournaments: Tournament[] = [];
 
 export function computeLeaderboard(t: Tournament, roster: Student[] = []) {
-  const map = new Map<string, { studentId: string; name: string; runs: number; wickets: number; catches: number; matches: number; battingAvg: number }>();
+  const map = new Map<string, {
+    studentId: string;
+    name: string;
+    runs: number;
+    ballsFaced: number;
+    wickets: number;
+    catches: number;
+    matches: number;
+    battingAvg: number;
+    strikeRate: number;
+    potm: number;
+  }>();
   for (const m of t.matches) {
     if (!m.stats) continue;
     for (const s of m.stats) {
@@ -56,16 +67,22 @@ export function computeLeaderboard(t: Tournament, roster: Student[] = []) {
         studentId: s.studentId,
         name: student?.name || s.studentId,
         runs: 0,
+        ballsFaced: 0,
         wickets: 0,
         catches: 0,
         matches: 0,
         battingAvg: 0,
+        strikeRate: 0,
+        potm: 0,
       };
       cur.runs += s.runs;
+      cur.ballsFaced += s.ballsFaced;
       cur.wickets += s.wickets;
       cur.catches += s.catches;
       cur.matches += 1;
+      cur.potm += s.potm ? 1 : 0;
       cur.battingAvg = cur.matches ? +(cur.runs / cur.matches).toFixed(1) : 0;
+      cur.strikeRate = cur.ballsFaced ? +((cur.runs / cur.ballsFaced) * 100).toFixed(1) : 0;
       if (student) cur.name = student.name;
       map.set(s.studentId, cur);
     }

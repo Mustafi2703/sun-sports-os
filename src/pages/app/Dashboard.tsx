@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Users, CreditCard, AlertTriangle, CalendarCheck, Bell, ArrowRight } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, Legend } from "recharts";
 import { StatCard } from "@/components/app/StatCard";
@@ -194,20 +194,28 @@ const AlertCard = ({
   cta: string;
   to?: string;
 }) => {
+  const navigate = useNavigate();
   const tones = {
     danger: "border-destructive/30 bg-destructive/5",
     warning: "border-amber-500/30 bg-amber-500/5",
     info: "border-blue-500/30 bg-blue-500/5",
   };
-  const body = (
+
+  return (
     <div className={cn("rounded-2xl border p-5 h-full", tones[tone])}>
       <div className="flex items-start gap-3">
         <div className="mt-0.5">{icon}</div>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm">{title}</p>
           <p className="text-xs text-muted-foreground mt-1">{desc}</p>
-          {cta && (
-            <Button size="sm" variant="outline" className="mt-3 h-8 text-xs">
+          {cta && to && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3 h-8 text-xs"
+              onClick={() => navigate(to)}
+            >
               {cta} <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           )}
@@ -215,7 +223,6 @@ const AlertCard = ({
       </div>
     </div>
   );
-  return to ? <Link to={to}>{body}</Link> : body;
 };
 
 export default Dashboard;

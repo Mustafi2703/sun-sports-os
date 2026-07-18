@@ -9,12 +9,18 @@ import {
   recomputeAttendancePctMany,
   todayAttendanceStats,
 } from "../lib/attendance.js";
+import { requireAuth } from "../lib/auth.js";
+import { ensureCoachUser, ensureParentUser } from "../lib/ensureUser.js";
+import { normalizePhone } from "../lib/auth.js";
 
 export const api = Router();
 
 api.get("/health", (_req, res) => {
   res.json({ ok: true, service: "sun-sports-os-api", time: new Date().toISOString() });
 });
+
+/** All academy admin routes below require Internal Team (admin) JWT */
+api.use(requireAuth("admin"));
 
 // ─── Snapshot / Dashboard ───────────────────────────────────────────
 api.get("/snapshot", async (_req, res) => {
@@ -98,6 +104,11 @@ api.post("/coaches", async (req, res) => {
       initials,
     },
   });
+  try {
+    await ensureCoachUser({ coachId: row.id, name: row.name, phone: row.phone });
+  } catch (e) {
+    console.warn("ensureCoachUser:", e);
+  }
   res.status(201).json(mapCoach(row));
 });
 
@@ -113,6 +124,11 @@ api.put("/coaches/:id", async (req, res) => {
         ...(req.body.specialty !== undefined ? { specialty: req.body.specialty } : {}),
       },
     });
+    try {
+      await ensureCoachUser({ coachId: row.id, name: row.name, phone: row.phone });
+    } catch (e) {
+      console.warn("ensureCoachUser:", e);
+    }
     res.json(mapCoach(row));
   } catch {
     res.status(404).json({ error: "Coach not found" });
@@ -219,7 +235,7 @@ api.post("/students", async (req, res) => {
       dob,
       age: ageFromDob(dob) ?? (Number(req.body.age) || 12),
       parentName: req.body.parentName || null,
-      parentPhone: req.body.parentPhone || null,
+      parentPhone: normalizePhone(req.body.parentPhone) || req.body.parentPhone || null,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
       feeAmount: Number(req.body.feeAmount) || 15000,
@@ -236,6 +252,11 @@ api.post("/students", async (req, res) => {
       bowlingSpeeds: req.body.lastBowlingSpeed || undefined,
     },
   });
+  try {
+    await ensureParentUser(row.parentPhone, row.parentName);
+  } catch (e) {
+    console.warn("ensureParentUser:", e);
+  }
   res.status(201).json(mapStudent(row));
 });
 
@@ -250,7 +271,9 @@ api.put("/students/:id", async (req, res) => {
         ...(dob !== undefined ? { dob, age: ageFromDob(dob) } : {}),
         ...(req.body.age !== undefined ? { age: Number(req.body.age) } : {}),
         ...(req.body.parentName !== undefined ? { parentName: req.body.parentName } : {}),
-        ...(req.body.parentPhone !== undefined ? { parentPhone: req.body.parentPhone } : {}),
+        ...(req.body.parentPhone !== undefined
+          ? { parentPhone: normalizePhone(req.body.parentPhone) || req.body.parentPhone || null }
+          : {}),
         ...(req.body.role !== undefined ? { role: req.body.role } : {}),
         ...(req.body.feeStatus !== undefined ? { feeStatus: req.body.feeStatus } : {}),
         ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
@@ -266,6 +289,11 @@ api.put("/students/:id", async (req, res) => {
         ...(req.body.batchId !== undefined ? { batchId: req.body.batchId || null } : {}),
       },
     });
+    try {
+      await ensureParentUser(row.parentPhone, row.parentName);
+    } catch (e) {
+      console.warn("ensureParentUser:", e);
+    }
     res.json(mapStudent(row));
   } catch {
     res.status(404).json({ error: "Student not found" });
@@ -453,5 +481,105 @@ api.delete("/enquiries/:id", async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Enquiry not found" });
+  }
+});
+
+// ─── Tournaments ────────────────────────────────────────────────────
+function mapTournament(row: {
+  id: string;
+  name: string;
+  startDate: Date;
+  endDate: Date;
+  format: string;
+  venue: string | null;
+  status: string;
+  opponents: unknown;
+  studentIds: unknown;
+  matches: unknown;
+}) {
+  return {
+    id: row.id,
+    name: row.name,
+    startDate: row.startDate.toISOString().slice(0, 10),
+    endDate: row.endDate.toISOString().slice(0, 10),
+    format: row.format,
+    venue: row.venue || "",
+    status: row.status as "upcoming" | "ongoing" | "completed",
+    opponents: Array.isArray(row.opponents) ? (row.opponents as string[]) : [],
+    studentIds: Array.isArray(row.studentIds) ? (row.studentIds as string[]) : [],
+    matches: Array.isArray(row.matches) ? row.matches : [],
+  };
+}
+
+api.get("/tournaments", async (_req, res) => {
+  const rows = await prisma.tournament.findMany({ orderBy: { startDate: "desc" } });
+  res.json(rows.map(mapTournament));
+});
+
+api.get("/tournaments/:id", async (req, res) => {
+  const row = await prisma.tournament.findUnique({ where: { id: req.params.id } });
+  if (!row) return res.status(404).json({ error: "Tournament not found" });
+  res.json(mapTournament(row));
+});
+
+api.post("/tournaments", async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "name required" });
+  const startDate = new Date(req.body.startDate || new Date());
+  const endDate = new Date(req.body.endDate || startDate);
+  const today = new Date().toISOString().slice(0, 10);
+  const start = startDate.toISOString().slice(0, 10);
+  const end = endDate.toISOString().slice(0, 10);
+  const status =
+    req.body.status ||
+    (end < today ? "completed" : start > today ? "upcoming" : "ongoing");
+
+  const row = await prisma.tournament.create({
+    data: {
+      name,
+      startDate,
+      endDate,
+      format: req.body.format || "T20",
+      venue: req.body.venue || null,
+      status,
+      opponents: req.body.opponents || [],
+      studentIds: req.body.studentIds || [],
+      matches: req.body.matches || [],
+    },
+  });
+  res.status(201).json(mapTournament(row));
+});
+
+api.put("/tournaments/:id", async (req, res) => {
+  try {
+    const existing = await prisma.tournament.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Tournament not found" });
+
+    const row = await prisma.tournament.update({
+      where: { id: req.params.id },
+      data: {
+        ...(req.body.name != null ? { name: String(req.body.name).trim() } : {}),
+        ...(req.body.startDate !== undefined ? { startDate: new Date(req.body.startDate) } : {}),
+        ...(req.body.endDate !== undefined ? { endDate: new Date(req.body.endDate) } : {}),
+        ...(req.body.format !== undefined ? { format: req.body.format } : {}),
+        ...(req.body.venue !== undefined ? { venue: req.body.venue } : {}),
+        ...(req.body.status !== undefined ? { status: req.body.status } : {}),
+        ...(req.body.opponents !== undefined ? { opponents: req.body.opponents } : {}),
+        ...(req.body.studentIds !== undefined ? { studentIds: req.body.studentIds } : {}),
+        ...(req.body.matches !== undefined ? { matches: req.body.matches } : {}),
+      },
+    });
+    res.json(mapTournament(row));
+  } catch {
+    res.status(404).json({ error: "Tournament not found" });
+  }
+});
+
+api.delete("/tournaments/:id", async (req, res) => {
+  try {
+    await prisma.tournament.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Tournament not found" });
   }
 });

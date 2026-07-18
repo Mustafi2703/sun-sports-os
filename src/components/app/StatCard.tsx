@@ -19,25 +19,27 @@ const toneMap: Record<string, string> = {
 };
 
 export const StatCard = ({ label, value, icon, trend, tone = "default", hint }: StatCardProps) => (
-  <div className="rounded-2xl border border-border bg-card p-5 hover:border-primary/30 transition-colors">
-    <div className="flex items-start justify-between">
-      <p className="text-sm text-muted-foreground">{label}</p>
+  <div className="rounded-2xl border border-border bg-card p-3.5 sm:p-5 hover:border-primary/30 transition-colors min-w-0">
+    <div className="flex items-start justify-between gap-2">
+      <p className="text-[11px] sm:text-sm text-muted-foreground leading-snug">{label}</p>
       {icon && (
-        <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+        <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
           {icon}
         </div>
       )}
     </div>
-    <p className={cn("mt-3 font-display text-2xl sm:text-3xl font-bold", toneMap[tone])}>{value}</p>
+    <p className={cn("mt-2 sm:mt-3 font-display text-lg sm:text-2xl lg:text-3xl font-bold truncate", toneMap[tone])}>
+      {value}
+    </p>
     {(trend || hint) && (
-      <div className="mt-2 flex items-center gap-2 text-xs">
+      <div className="mt-1.5 sm:mt-2 flex items-center gap-2 text-[10px] sm:text-xs min-w-0">
         {trend && (
-          <span className={cn("inline-flex items-center gap-1 font-medium", trend.up ? "text-primary" : "text-rose-400")}>
+          <span className={cn("inline-flex items-center gap-1 font-medium shrink-0", trend.up ? "text-primary" : "text-rose-400")}>
             {trend.up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
             {trend.value}
           </span>
         )}
-        {hint && <span className="text-muted-foreground">{hint}</span>}
+        {hint && <span className="text-muted-foreground truncate">{hint}</span>}
       </div>
     )}
   </div>

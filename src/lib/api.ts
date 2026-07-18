@@ -1,5 +1,16 @@
 export type FeeStatus = "paid" | "overdue1" | "overdue8";
 export type AttendanceMark = "present" | "absent" | "late" | "none";
+export type Portal = "parent" | "coach" | "admin";
+export type UserRole = Portal;
+
+export interface AuthUser {
+  id: string;
+  phone: string;
+  role: UserRole;
+  name: string;
+  coachId?: string | null;
+  parentPhone?: string | null;
+}
 
 export interface Coach {
   id: string;
@@ -77,13 +88,72 @@ export interface AcademySnapshot {
   };
 }
 
+export interface ParentChild extends Student {
+  batch: Batch | null;
+  coach: Coach | null;
+  attendanceGrid: AttendanceGridDay[];
+  payments: FeePayment[];
+}
+
+export interface ParentPortalData {
+  parent: { name: string; phone: string };
+  children: ParentChild[];
+  tournaments?: TournamentSummary[];
+}
+
+export interface TournamentSummary {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  format: string;
+  venue: string;
+  status: string;
+  studentIds: string[];
+  opponents: string[];
+  matches: unknown[];
+}
+
+export interface CoachPortalData {
+  coach: Coach;
+  batches: Batch[];
+  students: Student[];
+  coaches?: Coach[];
+  attendanceByBatch: { batch: string; batchId: string; w1: number; w2: number; w3: number; w4: number }[];
+  myBatchIds?: string[];
+  tournaments?: TournamentSummary[];
+  notes?: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
+}
+
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "";
+
+let activeAuthToken: string | null = null;
+
+/** Set by AuthContext when the active portal session changes */
+export function setAuthToken(token: string | null) {
+  activeAuthToken = token;
+}
+
+function authHeaders(): Record<string, string> {
+  if (activeAuthToken) return { Authorization: `Bearer ${activeAuthToken}` };
+  // Fallback if memory token was lost (e.g. HMR) — prefer path-matching role later via AuthContext
+  try {
+    for (const role of ["admin", "parent", "coach"] as const) {
+      const t = localStorage.getItem(`sunsports_token_${role}`);
+      if (t) return { Authorization: `Bearer ${t}` };
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
       ...(init?.headers || {}),
     },
   });
@@ -97,6 +167,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   baseUrl: API_BASE || "(same origin / relative)",
   health: () => request<{ ok: boolean }>("/api/health"),
+  login: (body: { phone: string; pin: string; portal: Portal }) =>
+    request<{ token: string; user: AuthUser }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  demoAccounts: () =>
+    request<{
+      pin: string;
+      admin: { phone: string; name: string };
+      coaches: { phone: string; name: string }[];
+      parents: { phone: string; name: string }[];
+    }>("/api/portal/demo-accounts"),
+  authMe: (token?: string) =>
+    request<AuthUser>("/api/auth/me", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }),
+  parentPortal: () => request<ParentPortalData>("/api/portal/parent"),
+  coachPortal: () => request<CoachPortalData>("/api/portal/coach"),
+  coachSaveAttendance: (body: { date: string; batchId?: string; marks: { studentId: string; status: string }[] }) =>
+    request("/api/portal/coach/attendance", { method: "POST", body: JSON.stringify(body) }),
+  coachAddNote: (body: { studentId: string; note: string }) =>
+    request("/api/portal/coach/notes", { method: "POST", body: JSON.stringify(body) }),
+  coachUpdateScores: (studentId: string, scores: Student["scores"]) =>
+    request<Student>(`/api/portal/coach/students/${studentId}/scores`, {
+      method: "PUT",
+      body: JSON.stringify({ scores }),
+    }),
+  listTournaments: () => request<TournamentSummary[]>("/api/tournaments"),
+  createTournament: (body: Partial<TournamentSummary> & { name: string; startDate: string; endDate: string }) =>
+    request<TournamentSummary>("/api/tournaments", { method: "POST", body: JSON.stringify(body) }),
+  updateTournament: (id: string, body: Partial<TournamentSummary>) =>
+    request<TournamentSummary>(`/api/tournaments/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteTournament: (id: string) =>
+    request<{ ok: boolean }>(`/api/tournaments/${id}`, { method: "DELETE" }),
   snapshot: () => request<AcademySnapshot>("/api/snapshot"),
   listStudents: (q?: Record<string, string>) => {
     const qs = q ? "?" + new URLSearchParams(q).toString() : "";
@@ -149,7 +253,11 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("mode", mode);
-    const res = await fetch(`${API_BASE}/api/import/excel`, { method: "POST", body: fd });
+    const res = await fetch(`${API_BASE}/api/import/excel`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
     if (!res.ok) throw new Error("Import failed");
     return res.json();
   },

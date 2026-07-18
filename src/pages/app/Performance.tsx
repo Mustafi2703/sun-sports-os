@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Star, FileText, Loader2 } from "lucide-react";
+import { Star, Loader2, Eye } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -87,15 +87,6 @@ const Performance = () => {
       <PageHeader
         title="Performance Tracking"
         description="Edit cricket assessment scores — saved to the database."
-        actions={
-          <Button
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            disabled={!list[0]}
-            onClick={() => setPreviewId(list[0]?.id ?? null)}
-          >
-            <FileText className="h-4 w-4 mr-1.5" /> View Progress Card
-          </Button>
-        }
       />
 
       <div className="rounded-2xl border border-border bg-card p-4">
@@ -140,8 +131,10 @@ const Performance = () => {
                     <td className="px-3 py-3"><Stars value={s.scores.temperament} /></td>
                     <td className="px-3 py-3 font-semibold text-primary">{overall}</td>
                     <td className="px-3 py-3 text-right space-x-2">
-                      <Button size="sm" variant="outline" onClick={() => openEdit(s)}>Edit</Button>
-                      <Button size="sm" variant="outline" onClick={() => setPreviewId(s.id)}>Card</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => openEdit(s)}>Edit</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setPreviewId(s.id)}>
+                        <Eye className="h-3.5 w-3.5 mr-1" /> View card
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -184,15 +177,29 @@ const Performance = () => {
             <DialogTitle>{preview?.name} — Progress card</DialogTitle>
           </DialogHeader>
           {preview && (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="hsl(var(--border))" />
-                  <PolarAngleAxis dataKey="skill" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-                  <PolarRadiusAxis domain={[0, 5]} tick={false} axisLine={false} />
-                  <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} />
-                </RadarChart>
-              </ResponsiveContainer>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className={cn("h-11 w-11 rounded-full flex items-center justify-center text-sm font-semibold", initialsColor(preview.name))}>
+                  {initialsOf(preview.name)}
+                </div>
+                <div>
+                  <p className="font-medium">{preview.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {preview.role || "Player"} · Overall{" "}
+                    {((preview.scores.batting + preview.scores.bowling + preview.scores.fielding + preview.scores.fitness + preview.scores.temperament) / 5).toFixed(1)}/5
+                  </p>
+                </div>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart data={radarData}>
+                    <PolarGrid stroke="hsl(var(--border))" />
+                    <PolarAngleAxis dataKey="skill" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
+                    <PolarRadiusAxis domain={[0, 5]} tick={false} axisLine={false} />
+                    <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           )}
         </DialogContent>

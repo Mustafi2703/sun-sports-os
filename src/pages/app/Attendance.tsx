@@ -113,9 +113,9 @@ const Attendance = () => {
             batchStudents.map((s) => {
               const m = marks[s.id];
               return (
-                <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={cn("h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold", initialsColor(s.name))}>{initialsOf(s.name)}</div>
+                <div key={s.id} className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>{initialsOf(s.name)}</div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{s.name}</p>
                       <p className="text-xs text-muted-foreground">
@@ -123,10 +123,10 @@ const Attendance = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <MarkBtn active={m === "present"} tone="success" onClick={() => set(s.id, "present")}><Check className="h-3.5 w-3.5" /></MarkBtn>
-                    <MarkBtn active={m === "late"} tone="warning" onClick={() => set(s.id, "late")}><Clock className="h-3.5 w-3.5" /></MarkBtn>
-                    <MarkBtn active={m === "absent"} tone="danger" onClick={() => set(s.id, "absent")}><X className="h-3.5 w-3.5" /></MarkBtn>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <MarkBtn active={m === "present"} tone="success" onClick={() => set(s.id, "present")}><Check className="h-4 w-4" /></MarkBtn>
+                    <MarkBtn active={m === "late"} tone="warning" onClick={() => set(s.id, "late")}><Clock className="h-4 w-4" /></MarkBtn>
+                    <MarkBtn active={m === "absent"} tone="danger" onClick={() => set(s.id, "absent")}><X className="h-4 w-4" /></MarkBtn>
                   </div>
                 </div>
               );
@@ -190,7 +190,15 @@ const MarkBtn = ({ active, tone, children, onClick }: { active: boolean; tone: "
     warning: active ? "bg-amber-500 text-background" : "border border-border text-muted-foreground hover:text-amber-400",
     danger: active ? "bg-destructive text-destructive-foreground" : "border border-border text-muted-foreground hover:text-destructive",
   }[tone];
-  return <button onClick={onClick} className={cn("h-8 w-8 rounded-md flex items-center justify-center transition-colors", styles)}>{children}</button>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn("h-11 w-11 sm:h-9 sm:w-9 rounded-lg flex items-center justify-center transition-colors", styles)}
+    >
+      {children}
+    </button>
+  );
 };
 
 export default Attendance;

@@ -18,4 +18,4 @@ COPY prisma/seed.ts ./prisma/seed.ts
 ENV NODE_ENV=production
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push && (npx tsx prisma/seed.ts || true) && npx tsx src/index.ts"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && (npx tsx prisma/seed.ts || true) && npx tsx src/index.ts"]

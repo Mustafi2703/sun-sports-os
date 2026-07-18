@@ -83,6 +83,26 @@ const Settings = () => {
           <Field label="Address" defaultValue="Ahmedabad, Gujarat" />
         </Card>
 
+        <Card title="Portal access">
+          <p className="text-sm text-muted-foreground mb-3">
+            Parents, coaches, and internal team each have a separate login (phone + PIN).
+          </p>
+          <ul className="text-sm space-y-2">
+            <li>
+              <a className="text-primary underline" href="/parent/login" target="_blank" rel="noreferrer">Parent portal</a>
+              <span className="text-muted-foreground"> — parent WhatsApp number · PIN 1234</span>
+            </li>
+            <li>
+              <a className="text-primary underline" href="/coach/login" target="_blank" rel="noreferrer">Coach portal</a>
+              <span className="text-muted-foreground"> — coach phone · PIN 1234</span>
+            </li>
+            <li>
+              <a className="text-primary underline" href="/app/login" target="_blank" rel="noreferrer">Internal team</a>
+              <span className="text-muted-foreground"> — 9000000001 · PIN 1234</span>
+            </li>
+          </ul>
+        </Card>
+
         <Card title="Data import (API)">
           <p className="text-sm text-muted-foreground">
             Upload Excel to the Railway backend. Live store:{" "}

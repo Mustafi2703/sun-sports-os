@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Batch, Student } from "@/lib/api";
+import type { Batch, Coach, Student } from "@/lib/api";
 
 export type StudentFormValues = {
   name: string;
@@ -40,6 +40,7 @@ export function StudentFormDialog({
   onClose,
   student,
   batches,
+  coaches = [],
   onSubmit,
   busy,
 }: {
@@ -47,6 +48,7 @@ export function StudentFormDialog({
   onClose: () => void;
   student: Student | null;
   batches: Batch[];
+  coaches?: Coach[];
   onSubmit: (values: StudentFormValues) => Promise<void>;
   busy?: boolean;
 }) {
@@ -74,6 +76,8 @@ export function StudentFormDialog({
   }, [open, student, batches]);
 
   const set = (key: keyof StudentFormValues, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  const selectedBatch = batches.find((b) => b.id === form.batchId);
+  const assignedCoach = coaches.find((c) => c.id === selectedBatch?.coachId);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -85,7 +89,7 @@ export function StudentFormDialog({
           <Field label="Full name">
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} required />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Date of birth">
               <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} />
             </Field>
@@ -99,9 +103,16 @@ export function StudentFormDialog({
           <Field label="Parent WhatsApp">
             <Input value={form.parentPhone} onChange={(e) => set("parentPhone", e.target.value)} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Batch">
-              <Select value={form.batchId} onValueChange={(v) => set("batchId", v)}>
+              <Select
+                value={form.batchId}
+                onValueChange={(v) => {
+                  set("batchId", v);
+                  const b = batches.find((x) => x.id === v);
+                  if (b?.monthlyFee) set("feeAmount", String(b.monthlyFee));
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="Batch" /></SelectTrigger>
                 <SelectContent>
                   {batches.map((b) => (
@@ -114,6 +125,14 @@ export function StudentFormDialog({
               <Input value={form.role} onChange={(e) => set("role", e.target.value)} placeholder="Batting, Bowling…" />
             </Field>
           </div>
+          {selectedBatch && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              Coach for this batch:{" "}
+              <span className="text-foreground font-medium">
+                {assignedCoach?.name || "Unassigned — set coach on Batches page"}
+              </span>
+            </p>
+          )}
           <div className="grid grid-cols-3 gap-3">
             <Field label="Fee status">
               <Select value={form.feeStatus} onValueChange={(v) => set("feeStatus", v)}>

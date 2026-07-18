@@ -4,8 +4,12 @@ import cors from "cors";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { api } from "./routes/api.js";
+import { authRouter } from "./routes/auth.js";
+import { portalRouter } from "./routes/portal.js";
 import { prisma } from "./lib/prisma.js";
 import { ageFromDob } from "./lib/mappers.js";
+import { bootstrapPortalUsers } from "./lib/bootstrapUsers.js";
+import { requireAuth } from "./lib/auth.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -30,14 +34,18 @@ app.get("/", (_req, res) => {
   res.json({
     name: "Sun Sports SportsOS API",
     health: "/api/health",
+    auth: "/api/auth/login",
+    portals: { parent: "/api/portal/parent", coach: "/api/portal/coach" },
     snapshot: "/api/snapshot",
   });
 });
 
+app.use("/api/auth", authRouter);
+app.use("/api/portal", portalRouter);
 app.use("/api", api);
 
-/** Excel import — replaces/merges roster from Sun Sports template */
-app.post("/api/import/excel", upload.single("file"), async (req, res) => {
+/** Excel import — replaces/merges roster from Sun Sports template (admin only) */
+app.post("/api/import/excel", requireAuth("admin"), upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "file required" });
     const wb = XLSX.read(req.file.buffer, { type: "buffer", cellDates: true });
@@ -207,6 +215,12 @@ app.post("/api/import/excel", upload.single("file"), async (req, res) => {
       await prisma.academy.create({ data: { name: "Sun Sports", program: "High Performance Cricket", address: "Ahmedabad, Gujarat" } });
     }
 
+    try {
+      await bootstrapPortalUsers();
+    } catch (e) {
+      console.warn("User bootstrap after import:", e);
+    }
+
     res.json({
       ok: true,
       imported,
@@ -229,12 +243,12 @@ app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Sun Sports API listening on :${PORT}`);
   try {
     await prisma.enquiry.deleteMany({ where: { parentName: "Sample Parent" } });
-    // Remove seed-era mock payments if still present
     await prisma.feePayment.deleteMany({ where: { note: "Monthly HP fee" } });
     const ids = (await prisma.student.findMany({ select: { id: true } })).map((s) => s.id);
     const { recomputeAttendancePctMany } = await import("./lib/attendance.js");
     await recomputeAttendancePctMany(ids);
     console.log(`Synced attendance % for ${ids.length} students from real records`);
+    await bootstrapPortalUsers();
   } catch (e) {
     console.warn("Startup sync skipped:", e);
   }

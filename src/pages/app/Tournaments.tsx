@@ -1,20 +1,20 @@
-import { useMemo, useState } from "react";
-import { Trophy, Plus, Calendar, MapPin, Users, Share2, Eye, Pencil, Award, Medal, ArrowUpDown, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Trophy, Plus, Calendar, MapPin, Users, Share2, Eye, Pencil, Award, Medal, ArrowUpDown, X, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { tournaments as initialTournaments, Tournament, Match, MatchFormat, MatchStat, computeLeaderboard, studentRole } from "@/data/tournaments";
+import { Tournament, Match, MatchFormat, MatchStat, computeLeaderboard, studentRole } from "@/data/tournaments";
 import { useAcademy } from "@/context/AcademyContext";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -26,35 +26,66 @@ const STATUS_STYLES: Record<string, string> = {
 
 const Tournaments = () => {
   const { students, initialsOf, initialsColor } = useAcademy();
-  const [list, setList] = useState<Tournament[]>(initialTournaments);
+  const [list, setList] = useState<Tournament[]>([]);
+  const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [statsMatchId, setStatsMatchId] = useState<{ tId: string; mId: string } | null>(null);
   const [shareId, setShareId] = useState<string | null>(null);
 
-  const active = list.filter(t => t.status !== "completed");
-  const past = list.filter(t => t.status === "completed");
-
-  const detailsTournament = list.find(t => t.id === detailsId) ?? null;
-  const statsCtx = statsMatchId ? {
-    tournament: list.find(t => t.id === statsMatchId.tId)!,
-    match: list.find(t => t.id === statsMatchId.tId)?.matches.find(m => m.id === statsMatchId.mId)!,
-  } : null;
-
-  const upsertTournament = (t: Tournament) => {
-    setList(prev => {
-      const exists = prev.find(p => p.id === t.id);
-      return exists ? prev.map(p => p.id === t.id ? t : p) : [t, ...prev];
-    });
+  const load = async () => {
+    const rows = await api.listTournaments();
+    setList(rows as Tournament[]);
   };
 
-  const saveStats = (tId: string, mId: string, patch: Partial<Match>) => {
-    setList(prev => prev.map(t => t.id !== tId ? t : {
-      ...t,
-      matches: t.matches.map(m => m.id !== mId ? m : { ...m, ...patch, completed: true }),
-    }));
-    toast.success("Match stats saved");
-    setStatsMatchId(null);
+  useEffect(() => {
+    void load()
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load tournaments"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const active = list.filter((t) => t.status !== "completed");
+  const past = list.filter((t) => t.status === "completed");
+
+  const detailsTournament = list.find((t) => t.id === detailsId) ?? null;
+  const statsCtx = statsMatchId
+    ? {
+        tournament: list.find((t) => t.id === statsMatchId.tId)!,
+        match: list.find((t) => t.id === statsMatchId.tId)?.matches.find((m) => m.id === statsMatchId.mId)!,
+      }
+    : null;
+
+  const upsertTournament = async (t: Tournament, isNew: boolean) => {
+    try {
+      if (isNew) {
+        const saved = await api.createTournament(t);
+        setList((prev) => [saved as Tournament, ...prev]);
+      } else {
+        const saved = await api.updateTournament(t.id, t);
+        setList((prev) => prev.map((p) => (p.id === t.id ? (saved as Tournament) : p)));
+      }
+      toast.success(isNew ? "Tournament created" : "Tournament updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+      throw e;
+    }
+  };
+
+  const saveStats = async (tId: string, mId: string, patch: Partial<Match>) => {
+    const tournament = list.find((t) => t.id === tId);
+    if (!tournament) return;
+    const updated: Tournament = {
+      ...tournament,
+      matches: tournament.matches.map((m) => (m.id !== mId ? m : { ...m, ...patch, completed: true })),
+    };
+    try {
+      const saved = await api.updateTournament(tId, updated);
+      setList((prev) => prev.map((p) => (p.id === tId ? (saved as Tournament) : p)));
+      toast.success("Match stats saved");
+      setStatsMatchId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    }
   };
 
   return (
@@ -69,23 +100,32 @@ const Tournaments = () => {
         }
       />
 
-      <Tabs defaultValue="active">
-        <TabsList>
-          <TabsTrigger value="active">Active ({active.length})</TabsTrigger>
-          <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
-        </TabsList>
-        <TabsContent value="active" className="mt-5">
-          <TournamentGrid items={active} onView={setDetailsId} onShare={setShareId} />
-        </TabsContent>
-        <TabsContent value="past" className="mt-5">
-          <TournamentGrid items={past} onView={setDetailsId} onShare={setShareId} />
-        </TabsContent>
-      </Tabs>
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading tournaments…
+        </div>
+      ) : (
+        <Tabs defaultValue="active">
+          <TabsList>
+            <TabsTrigger value="active">Active ({active.length})</TabsTrigger>
+            <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="active" className="mt-5">
+            <TournamentGrid items={active} onView={setDetailsId} onShare={setShareId} />
+          </TabsContent>
+          <TabsContent value="past" className="mt-5">
+            <TournamentGrid items={past} onView={setDetailsId} onShare={setShareId} />
+          </TabsContent>
+        </Tabs>
+      )}
 
       <CreateTournamentDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onSave={(t) => { upsertTournament(t); toast.success("Tournament created"); setCreateOpen(false); }}
+        onSave={async (t) => {
+          await upsertTournament(t, true);
+          setCreateOpen(false);
+        }}
       />
 
       <TournamentDetailsDialog
@@ -100,17 +140,15 @@ const Tournaments = () => {
           tournament={statsCtx.tournament}
           match={statsCtx.match}
           onClose={() => setStatsMatchId(null)}
-          onSave={(patch) => saveStats(statsCtx.tournament.id, statsCtx.match.id, patch)}
+          onSave={(patch) => void saveStats(statsCtx.tournament.id, statsCtx.match.id, patch)}
         />
       )}
 
-      <ShareDialog
-        tournament={list.find(t => t.id === shareId) ?? null}
-        onOpenChange={(o) => !o && setShareId(null)}
-      />
+      <ShareDialog tournament={list.find((t) => t.id === shareId) ?? null} onOpenChange={(o) => !o && setShareId(null)} />
     </div>
   );
 };
+
 
 const TournamentGrid = ({ items, onView, onShare }: {
   items: Tournament[]; onView: (id: string) => void; onShare: (id: string) => void;
@@ -154,9 +192,15 @@ const TournamentCard = ({ t, onView, onShare }: { t: Tournament; onView: () => v
       </div>
 
       <div className="flex items-center gap-2">
-        <Button size="sm" variant="outline" className="flex-1" onClick={onView}><Eye className="h-3.5 w-3.5" /> View</Button>
-        <Button size="sm" variant="outline" onClick={() => toast.info("Edit form opens here")}><Pencil className="h-3.5 w-3.5" /></Button>
-        <Button size="sm" variant="outline" onClick={onShare}><Share2 className="h-3.5 w-3.5" /></Button>
+        <Button type="button" size="sm" variant="outline" className="flex-1" onClick={onView}>
+          <Eye className="h-3.5 w-3.5" /> View
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => toast.info("Edit coming soon")}>
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={onShare}>
+          <Share2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
     </Card>
   );
@@ -164,8 +208,9 @@ const TournamentCard = ({ t, onView, onShare }: { t: Tournament; onView: () => v
 
 // ---------------- Create Tournament ----------------
 const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
-  open: boolean; onOpenChange: (o: boolean) => void; onSave: (t: Tournament) => void;
+  open: boolean; onOpenChange: (o: boolean) => void; onSave: (t: Tournament) => void | Promise<void>;
 }) => {
+  const { students } = useAcademy();
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -180,7 +225,7 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
     setOpponentsText(""); setSelectedIds([]); setMatchRows([{ date: "", time: "", opponent: "" }]);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!name || !startDate || !endDate) { toast.error("Name and date range required"); return; }
     const opponents = opponentsText.split(",").map(o => o.trim()).filter(Boolean);
     const matches: Match[] = matchRows.filter(r => r.date && r.opponent).map((r, i) => ({
@@ -189,11 +234,15 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
     }));
     const today = new Date().toISOString().slice(0, 10);
     const status: Tournament["status"] = endDate < today ? "completed" : startDate > today ? "upcoming" : "ongoing";
-    onSave({
-      id: `t_${Date.now()}`, name, startDate, endDate, format, venue,
-      studentIds: selectedIds, opponents, status, matches,
-    });
-    reset();
+    try {
+      await onSave({
+        id: `t_${Date.now()}`, name, startDate, endDate, format, venue,
+        studentIds: selectedIds, opponents, status, matches,
+      });
+      reset();
+    } catch {
+      /* toast already shown */
+    }
   };
 
   return (
@@ -205,7 +254,7 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
             <Label>Tournament Name</Label>
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Champions Cup 2026" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Start Date</Label>
               <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
@@ -215,7 +264,7 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
               <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Format</Label>
               <Select value={format} onValueChange={(v) => setFormat(v as MatchFormat)}>
@@ -240,9 +289,9 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
           <div>
             <Label>Participating Students ({selectedIds.length} selected)</Label>
             <ScrollArea className="h-40 rounded-md border border-border p-2 mt-1">
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                 {students.slice(0, 40).map(s => (
-                  <label key={s.id} className="flex items-center gap-2 text-sm py-1 px-1.5 rounded hover:bg-muted/30 cursor-pointer">
+                  <label key={s.id} className="flex items-center gap-2 text-sm py-2 px-2 rounded hover:bg-muted/30 cursor-pointer min-h-[44px]">
                     <Checkbox
                       checked={selectedIds.includes(s.id)}
                       onCheckedChange={(c) => setSelectedIds(p => c ? [...p, s.id] : p.filter(i => i !== s.id))}
@@ -262,7 +311,7 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
             </div>
             <div className="space-y-2">
               {matchRows.map((row, i) => (
-                <div key={i} className="grid grid-cols-[1fr,1fr,1.5fr,auto] gap-2">
+                <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr,1fr,1.5fr,auto] gap-2">
                   <Input type="date" value={row.date} onChange={e => setMatchRows(p => p.map((r, idx) => idx === i ? { ...r, date: e.target.value } : r))} />
                   <Input placeholder="9:00 AM" value={row.time} onChange={e => setMatchRows(p => p.map((r, idx) => idx === i ? { ...r, time: e.target.value } : r))} />
                   <Input placeholder="Opponent" value={row.opponent} onChange={e => setMatchRows(p => p.map((r, idx) => idx === i ? { ...r, opponent: e.target.value } : r))} />
@@ -299,16 +348,19 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
     <Dialog open={!!tournament} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <div className="min-w-0">
               <DialogTitle className="font-display text-2xl flex items-center gap-2">
-                <Trophy className="h-5 w-5 text-primary" /> {tournament.name}
+                <Trophy className="h-5 w-5 text-primary shrink-0" />
+                <span className="truncate">{tournament.name}</span>
               </DialogTitle>
               <p className="text-sm text-muted-foreground mt-1">
                 {fmtRange(tournament.startDate, tournament.endDate)} • {tournament.format} • {tournament.venue}
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={onShare}><Share2 className="h-3.5 w-3.5" /> Share Stats</Button>
+            <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={onShare}>
+              <Share2 className="h-3.5 w-3.5" /> Share Stats
+            </Button>
           </div>
         </DialogHeader>
 
@@ -411,18 +463,26 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {leaderboard.map((row, i) => (
-                    <TableRow key={row.studentId}>
-                      <TableCell><RankBadge rank={i + 1} /></TableCell>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell className="text-right">{row.matches}</TableCell>
-                      <TableCell className="text-right font-semibold">{row.runs}</TableCell>
-                      <TableCell className="text-right">{row.battingAvg}</TableCell>
-                      <TableCell className="text-right">{row.strikeRate}</TableCell>
-                      <TableCell className="text-right">{row.wickets}</TableCell>
-                      <TableCell className="text-right">{row.potm > 0 ? <Badge className="bg-primary/15 text-primary border-0">{row.potm}</Badge> : "—"}</TableCell>
+                  {leaderboard.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
+                        Log match stats to populate the leaderboard.
+                      </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    leaderboard.map((row, i) => (
+                      <TableRow key={row.studentId}>
+                        <TableCell><RankBadge rank={i + 1} /></TableCell>
+                        <TableCell className="font-medium">{row.name}</TableCell>
+                        <TableCell className="text-right">{row.matches}</TableCell>
+                        <TableCell className="text-right font-semibold">{row.runs}</TableCell>
+                        <TableCell className="text-right">{row.battingAvg}</TableCell>
+                        <TableCell className="text-right">{row.strikeRate}</TableCell>
+                        <TableCell className="text-right">{row.wickets}</TableCell>
+                        <TableCell className="text-right">{row.potm > 0 ? <Badge className="bg-primary/15 text-primary border-0">{row.potm}</Badge> : "—"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>

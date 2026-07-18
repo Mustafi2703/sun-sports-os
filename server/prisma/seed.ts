@@ -118,6 +118,9 @@ async function main() {
     });
   }
 
+  const { bootstrapPortalUsers } = await import("../src/lib/bootstrapUsers.js");
+  await bootstrapPortalUsers();
+
   console.log(`Seeded: ${coaches.length} coaches, 1 batch, ${students.length} students (no mock attendance/payments)`);
 }
 

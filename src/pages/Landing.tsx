@@ -37,12 +37,17 @@ const Landing = () => {
               <p className="mt-5 text-base sm:text-lg text-muted-foreground max-w-xl">
                 Automate attendance, fee collection, and parent communication — all in one place.
               </p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-3 sm:items-center">
-                <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-glow">
-                  Start Free Trial <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-                <Link to="/app">
-                  <Button size="lg" variant="outline" className="border-border w-full">Experience Now</Button>
+              <div className="mt-8 flex flex-col sm:flex-row gap-3 sm:items-center flex-wrap">
+                <Link to="/parent/login">
+                  <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-glow w-full sm:w-auto">
+                    Parent login <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link to="/coach/login">
+                  <Button size="lg" variant="outline" className="border-border w-full sm:w-auto">Coach login</Button>
+                </Link>
+                <Link to="/app/login">
+                  <Button size="lg" variant="outline" className="border-border w-full sm:w-auto">Internal team</Button>
                 </Link>
               </div>
               <div className="mt-8 inline-flex items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
