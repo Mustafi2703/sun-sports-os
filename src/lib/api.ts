@@ -48,6 +48,7 @@ export interface Student {
   daysOverdue: number;
   attendancePct: number;
   scores: { batting: number; bowling: number; fielding: number; fitness: number; temperament: number };
+  scoresUpdatedAt?: string;
   joinDate: string;
   medicalNotes?: string;
   lastBowlingSpeed?: number[];
@@ -93,6 +94,7 @@ export interface ParentChild extends Student {
   coach: Coach | null;
   attendanceGrid: AttendanceGridDay[];
   payments: FeePayment[];
+  notes?: { id: string; note: string; author?: string | null; createdAt: string }[];
 }
 
 export interface ParentPortalData {
@@ -150,9 +152,11 @@ function authHeaders(): Record<string, string> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
       ...authHeaders(),
       ...(init?.headers || {}),
     },

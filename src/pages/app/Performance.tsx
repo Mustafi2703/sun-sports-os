@@ -65,7 +65,7 @@ const Performance = () => {
     setBusy(true);
     try {
       await api.updateStudent(editing.id, { scores } as Partial<Student>);
-      toast.success(`Updated scores for ${editing.name}`);
+      toast.success(`Updated scores for ${editing.name} — synced to parent portal`);
       setEditing(null);
       await refresh();
     } catch (e) {

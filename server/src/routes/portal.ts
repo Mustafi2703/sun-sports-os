@@ -34,6 +34,7 @@ function mapTournament(row: {
 
 /** Parent: children + fees + attendance + progress + relevant tournaments */
 portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const phone = normalizePhone(req.user!.parentPhone || req.user!.phone);
   const students = await prisma.student.findMany({ orderBy: { name: "asc" } });
   const mine = students.filter((s) => normalizePhone(s.parentPhone) === phone);
@@ -50,12 +51,17 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
       const mapped = mapStudent(s);
       const batch = s.batchId ? batchMap[s.batchId] : undefined;
       const coach = batch?.coachId ? coachMap[batch.coachId] : undefined;
-      const [grid, payments] = await Promise.all([
+      const [grid, payments, notes] = await Promise.all([
         attendanceGrid(s.id, 30),
         prisma.feePayment.findMany({
           where: { studentId: s.id },
           orderBy: { paidAt: "desc" },
           take: 12,
+        }),
+        prisma.coachNote.findMany({
+          where: { studentId: s.id },
+          orderBy: { createdAt: "desc" },
+          take: 10,
         }),
       ]);
       return {
@@ -64,6 +70,12 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
         coach: coach || null,
         attendanceGrid: grid,
         payments,
+        notes: notes.map((n) => ({
+          id: n.id,
+          note: n.note,
+          author: n.author,
+          createdAt: n.createdAt.toISOString(),
+        })),
       };
     })
   );
@@ -192,16 +204,22 @@ portalRouter.put("/coach/students/:id/scores", requireAuth("coach"), async (req,
   }
 
   const scores = req.body.scores || req.body;
+  const clamp = (v: unknown, fallback: number) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(5, Math.max(1, n));
+  };
   const row = await prisma.student.update({
     where: { id: student.id },
     data: {
-      ...(scores.batting !== undefined ? { batting: Number(scores.batting) } : {}),
-      ...(scores.bowling !== undefined ? { bowling: Number(scores.bowling) } : {}),
-      ...(scores.fielding !== undefined ? { fielding: Number(scores.fielding) } : {}),
-      ...(scores.fitness !== undefined ? { fitness: Number(scores.fitness) } : {}),
-      ...(scores.temperament !== undefined ? { temperament: Number(scores.temperament) } : {}),
+      batting: clamp(scores.batting, student.batting),
+      bowling: clamp(scores.bowling, student.bowling),
+      fielding: clamp(scores.fielding, student.fielding),
+      fitness: clamp(scores.fitness, student.fitness),
+      temperament: clamp(scores.temperament, student.temperament),
     },
   });
+  res.setHeader("Cache-Control", "no-store");
   res.json(mapStudent(row));
 });
 

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bell, Calendar, CreditCard, MessageCircle, TrendingUp, User, Home, Phone, Trophy,
-  AlertTriangle, CalendarCheck, Users, ArrowRight,
+  AlertTriangle, CalendarCheck, Users, ArrowRight, StickyNote, Star,
 } from "lucide-react";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { api, initialsColor, initialsOf, inr, type ParentChild, type ParentPortalData, type TournamentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -21,24 +22,98 @@ const FEE_LABEL: Record<string, string> = {
   overdue8: "Overdue (8+ days)",
 };
 
+type ParentNote = NonNullable<ParentChild["notes"]>[number];
+
+type ParentNotification = {
+  id: string;
+  tone: "danger" | "warning" | "success" | "info";
+  kind: "fee" | "attendance" | "score" | "note" | "info";
+  title: string;
+  desc: string;
+  studentId?: string;
+  studentName?: string;
+  note?: ParentNote;
+  scores?: ParentChild["scores"];
+  scoresUpdatedAt?: string;
+  time?: string;
+};
+
+function fmtWhen(iso?: string | null) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("en-IN", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function isRecent(iso?: string | null, days = 45) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < days * 86400000;
+}
+
 export default function ParentHome() {
   const { user } = useAuth();
   const [data, setData] = useState<ParentPortalData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [studentId, setStudentId] = useState("");
   const [tab, setTab] = useState("home");
+  const [activeNote, setActiveNote] = useState<ParentNotification | null>(null);
+
+  const loadPortal = useCallback(async (opts?: { soft?: boolean }) => {
+    if (opts?.soft) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const d = await api.parentPortal();
+      setData(d);
+      setError("");
+      setStudentId((prev) => {
+        if (prev && d.children.some((c) => c.id === prev)) return prev;
+        return d.children[0]?.id || "";
+      });
+      return d;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+      throw e;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void api
-      .parentPortal()
-      .then((d) => {
-        setData(d);
-        if (d.children[0]) setStudentId(d.children[0].id);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => setLoading(false));
-  }, []);
+    void loadPortal().catch(() => undefined);
+  }, [loadPortal]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadPortal({ soft: true }).catch(() => undefined);
+      }
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadPortal]);
+
+  const onTabChange = (id: string) => {
+    setTab(id);
+    if (id === "progress" || id === "home" || id === "fees") {
+      void loadPortal({ soft: true }).catch(() => undefined);
+    }
+  };
 
   const child = data?.children.find((c) => c.id === studentId) ?? data?.children[0];
   const overdueKids = useMemo(
@@ -47,38 +122,106 @@ export default function ParentHome() {
   );
 
   const notifications = useMemo(() => {
-    const items: { tone: "danger" | "warning" | "success" | "info"; title: string; desc: string }[] = [];
+    const items: ParentNotification[] = [];
     for (const c of data?.children ?? []) {
+      for (const n of c.notes ?? []) {
+        items.push({
+          id: `note-${n.id}`,
+          tone: "info",
+          kind: "note",
+          title: `Coach note — ${c.name}`,
+          desc: n.note.length > 100 ? `${n.note.slice(0, 100)}…` : n.note,
+          studentId: c.id,
+          studentName: c.name,
+          note: n,
+          time: n.createdAt,
+        });
+      }
+      if (c.scoresUpdatedAt && isRecent(c.scoresUpdatedAt)) {
+        const overall =
+          (c.scores.batting + c.scores.bowling + c.scores.fielding + c.scores.fitness + c.scores.temperament) / 5;
+        items.push({
+          id: `score-${c.id}-${c.scoresUpdatedAt}`,
+          tone: "success",
+          kind: "score",
+          title: `Performance updated — ${c.name}`,
+          desc: `Overall ${overall.toFixed(1)}/5 · tap to view full scorecard`,
+          studentId: c.id,
+          studentName: c.name,
+          scores: c.scores,
+          scoresUpdatedAt: c.scoresUpdatedAt,
+          time: c.scoresUpdatedAt,
+        });
+      }
       if (c.feeStatus === "overdue8") {
         items.push({
+          id: `fee8-${c.id}`,
           tone: "danger",
+          kind: "fee",
           title: `Fee overdue for ${c.name}`,
           desc: `${inr(c.feeAmount)} · ${c.daysOverdue} days late. Please clear dues soon.`,
+          studentId: c.id,
+          studentName: c.name,
         });
       } else if (c.feeStatus === "overdue1") {
         items.push({
+          id: `fee1-${c.id}`,
           tone: "warning",
+          kind: "fee",
           title: `Fee reminder — ${c.name}`,
           desc: `${inr(c.feeAmount)} pending · ${c.daysOverdue || "a few"} days overdue.`,
+          studentId: c.id,
+          studentName: c.name,
         });
       }
       if (c.attendancePct > 0 && c.attendancePct < 70) {
         items.push({
+          id: `att-${c.id}`,
           tone: "warning",
+          kind: "attendance",
           title: `Attendance low — ${c.name}`,
           desc: `Currently at ${c.attendancePct}%. Please ensure regular sessions.`,
+          studentId: c.id,
+          studentName: c.name,
         });
       }
     }
+    items.sort((a, b) => {
+      const ta = a.time ? new Date(a.time).getTime() : 0;
+      const tb = b.time ? new Date(b.time).getTime() : 0;
+      return tb - ta;
+    });
     if (!items.length && (data?.children.length ?? 0) > 0) {
       items.push({
+        id: "clear",
         tone: "success",
+        kind: "info",
         title: "All clear",
-        desc: "Fees are up to date and no attendance alerts right now.",
+        desc: "Fees are up to date and no new coach updates right now.",
       });
     }
     return items;
   }, [data]);
+
+  const dashboardNotes = useMemo(() => {
+    const rows: { child: ParentChild; note: ParentNote }[] = [];
+    for (const c of data?.children ?? []) {
+      for (const n of (c.notes ?? []).slice(0, 3)) rows.push({ child: c, note: n });
+    }
+    return rows
+      .sort((a, b) => new Date(b.note.createdAt).getTime() - new Date(a.note.createdAt).getTime())
+      .slice(0, 5);
+  }, [data]);
+
+  const openNotification = (n: ParentNotification) => {
+    if (n.studentId) setStudentId(n.studentId);
+    if (n.kind === "note" || n.kind === "score") {
+      setActiveNote(n);
+      return;
+    }
+    if (n.kind === "fee") setTab("fees");
+    else if (n.kind === "attendance") setTab("attendance");
+  };
 
   const tabs = [
     { id: "home", label: "Dashboard", shortLabel: "Home", icon: <Home className="h-4 w-4" /> },
@@ -95,7 +238,7 @@ export default function ParentHome() {
       roleLabel="Parent"
       tabs={tabs}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={onTabChange}
     >
       {loading && <p className="text-sm text-muted-foreground py-8 text-center">Loading your dashboard…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -129,27 +272,173 @@ export default function ParentHome() {
               child={child}
               parentName={user?.name || data.parent.name}
               notifications={notifications}
+              dashboardNotes={dashboardNotes}
               overdueCount={overdueKids.length}
               tournaments={data.tournaments ?? []}
               onPay={() => setTab("fees")}
               onAttendance={() => setTab("attendance")}
               onProgress={() => setTab("progress")}
               onMessage={() => toast.info("WhatsApp academy: +91 90330 02641")}
+              onOpenNotification={openNotification}
+              onOpenNote={(c, note) =>
+                setActiveNote({
+                  id: `note-${note.id}`,
+                  tone: "info",
+                  kind: "note",
+                  title: `Coach note — ${c.name}`,
+                  desc: note.note,
+                  studentId: c.id,
+                  studentName: c.name,
+                  note,
+                  time: note.createdAt,
+                })
+              }
+              onOpenScores={(c) =>
+                setActiveNote({
+                  id: `score-${c.id}`,
+                  tone: "success",
+                  kind: "score",
+                  title: `Performance — ${c.name}`,
+                  desc: "Latest assessment scores from the coaching team.",
+                  studentId: c.id,
+                  studentName: c.name,
+                  scores: c.scores,
+                  scoresUpdatedAt: c.scoresUpdatedAt,
+                  time: c.scoresUpdatedAt,
+                })
+              }
             />
           )}
           {tab === "fees" && <FeesTab child={child} />}
           {tab === "attendance" && <AttendanceTab child={child} />}
-          {tab === "progress" && <ProgressTab child={child} />}
-          {tab === "info" && (
-            <InfoTab
+          {tab === "progress" && (
+            <ProgressTab
               child={child}
-              parentName={data.parent.name}
-              tournaments={data.tournaments ?? []}
+              refreshing={refreshing}
+              onRefresh={() =>
+                void loadPortal({ soft: true })
+                  .then(() => toast.success("Scores refreshed"))
+                  .catch(() => toast.error("Refresh failed"))
+              }
+              onOpenNote={(note) =>
+                setActiveNote({
+                  id: `note-${note.id}`,
+                  tone: "info",
+                  kind: "note",
+                  title: `Coach note — ${child.name}`,
+                  desc: note.note,
+                  studentId: child.id,
+                  studentName: child.name,
+                  note,
+                  time: note.createdAt,
+                })
+              }
             />
+          )}
+          {tab === "info" && (
+            <InfoTab child={child} parentName={data.parent.name} tournaments={data.tournaments ?? []} />
           )}
         </div>
       )}
+
+      <UpdateDialog
+        notification={activeNote}
+        onClose={() => setActiveNote(null)}
+        onGoPerformance={() => {
+          setActiveNote(null);
+          setTab("progress");
+        }}
+      />
     </PortalShell>
+  );
+}
+
+function UpdateDialog({
+  notification,
+  onClose,
+  onGoPerformance,
+}: {
+  notification: ParentNotification | null;
+  onClose: () => void;
+  onGoPerformance: () => void;
+}) {
+  const scores = notification?.scores;
+  const rows = scores
+    ? ([
+        ["Batting", scores.batting],
+        ["Bowling", scores.bowling],
+        ["Fielding", scores.fielding],
+        ["Fitness", scores.fitness],
+        ["Temperament", scores.temperament],
+      ] as const)
+    : [];
+  const overall = rows.length ? rows.reduce((a, [, v]) => a + Number(v), 0) / rows.length : 0;
+
+  return (
+    <Dialog open={!!notification} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-display pr-6">{notification?.title || "Update"}</DialogTitle>
+        </DialogHeader>
+
+        {notification?.kind === "note" && notification.note && (
+          <div className="space-y-3 py-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <StickyNote className="h-3.5 w-3.5 text-primary" />
+              <span>{notification.note.author || "Coach"}</span>
+              <span>·</span>
+              <span>{fmtWhen(notification.note.createdAt)}</span>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/20 p-4">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{notification.note.note}</p>
+            </div>
+            {notification.studentName && (
+              <p className="text-xs text-muted-foreground">For {notification.studentName}</p>
+            )}
+          </div>
+        )}
+
+        {notification?.kind === "score" && scores && (
+          <div className="space-y-4 py-1">
+            {notification.scoresUpdatedAt && (
+              <p className="text-xs text-muted-foreground">Updated {fmtWhen(notification.scoresUpdatedAt)}</p>
+            )}
+            <div className="rounded-xl border border-primary/30 bg-primary/10 p-4 text-center">
+              <p className="text-xs text-muted-foreground">Overall rating</p>
+              <p className="font-display text-3xl font-bold text-primary mt-1">
+                {overall.toFixed(1)}
+                <span className="text-base text-muted-foreground">/5</span>
+              </p>
+            </div>
+            <div className="space-y-3">
+              {rows.map(([label, value]) => (
+                <div key={label}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Star className="h-3.5 w-3.5 text-amber-400" />
+                      {label}
+                    </span>
+                    <span className="text-primary font-medium">{Number(value).toFixed(1)}/5</span>
+                  </div>
+                  <Progress value={Number(value) * 20} className="h-2" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          {(notification?.kind === "note" || notification?.kind === "score") && (
+            <Button variant="outline" onClick={onGoPerformance}>
+              Open Performance
+            </Button>
+          )}
+          <Button className="bg-primary text-primary-foreground" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -157,22 +446,30 @@ function HomeTab({
   child,
   parentName,
   notifications,
+  dashboardNotes,
   overdueCount,
   tournaments,
   onPay,
   onAttendance,
   onProgress,
   onMessage,
+  onOpenNotification,
+  onOpenNote,
+  onOpenScores,
 }: {
   child: ParentChild;
   parentName: string;
-  notifications: { tone: string; title: string; desc: string }[];
+  notifications: ParentNotification[];
+  dashboardNotes: { child: ParentChild; note: ParentNote }[];
   overdueCount: number;
   tournaments: TournamentSummary[];
   onPay: () => void;
   onAttendance: () => void;
   onProgress: () => void;
   onMessage: () => void;
+  onOpenNotification: (n: ParentNotification) => void;
+  onOpenNote: (c: ParentChild, note: ParentNote) => void;
+  onOpenScores: (c: ParentChild) => void;
 }) {
   const overall =
     (child.scores.batting + child.scores.bowling + child.scores.fielding + child.scores.fitness + child.scores.temperament) / 5;
@@ -181,6 +478,7 @@ function HomeTab({
     .slice(0, 4);
   const present = child.attendanceGrid.filter((d) => d.status === "present" || d.status === "late").length;
   const marked = child.attendanceGrid.filter((d) => d.status !== "none").length;
+  const noteCount = notifications.filter((n) => n.kind === "note").length;
 
   return (
     <div className="space-y-6">
@@ -211,18 +509,67 @@ function HomeTab({
           hint={marked ? `${present}/${marked} last 30 days` : "No sessions marked"}
           tone={child.attendancePct > 0 && child.attendancePct < 70 ? "warning" : "success"}
         />
+        <button type="button" className="text-left" onClick={() => onOpenScores(child)}>
+          <StatCard
+            label="Overall score"
+            value={`${overall.toFixed(1)}/5`}
+            icon={<TrendingUp className="h-4 w-4" />}
+            hint={child.scoresUpdatedAt ? `Updated ${fmtWhen(child.scoresUpdatedAt)}` : "Tap to view"}
+          />
+        </button>
         <StatCard
-          label="Overall score"
-          value={`${overall.toFixed(1)}/5`}
-          icon={<TrendingUp className="h-4 w-4" />}
-          hint="Latest assessment"
+          label="Coach notes"
+          value={String((child.notes ?? []).length)}
+          icon={<StickyNote className="h-4 w-4" />}
+          hint={noteCount ? `${noteCount} recent` : "No new notes"}
         />
-        <StatCard
-          label="Batch"
-          value={child.batch?.name?.replace(/^High Performance\s*/i, "") || "—"}
-          icon={<Users className="h-4 w-4" />}
-          hint={child.coach ? `Coach ${child.coach.name}` : "Unassigned"}
-        />
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="p-5 border-b border-border flex items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display font-semibold">Latest coach updates</h3>
+            <p className="text-xs text-muted-foreground">Performance notes & scorecard changes</p>
+          </div>
+          <Button size="sm" variant="ghost" className="text-primary shrink-0" onClick={onProgress}>
+            All scores <ArrowRight className="ml-1 h-3 w-3" />
+          </Button>
+        </div>
+        {dashboardNotes.length === 0 ? (
+          <div className="px-5 py-6 space-y-3">
+            <p className="text-sm text-muted-foreground">No coach notes yet for your children.</p>
+            <Button variant="outline" size="sm" onClick={() => onOpenScores(child)}>
+              View current scorecard
+            </Button>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {dashboardNotes.map(({ child: c, note }) => (
+              <button
+                key={note.id}
+                type="button"
+                onClick={() => onOpenNote(c, note)}
+                className="w-full text-left px-5 py-4 hover:bg-muted/20 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <StickyNote className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium">{c.name}</p>
+                      <Badge variant="outline" className="text-[10px]">Coach note</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{note.note}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1.5">
+                      {note.author || "Coach"} · {fmtWhen(note.createdAt)} · Tap to read
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -237,11 +584,7 @@ function HomeTab({
         <AlertCard
           tone={child.attendancePct > 0 && child.attendancePct < 70 ? "warning" : "info"}
           icon={<Calendar className="h-4 w-4" />}
-          title={
-            child.attendancePct > 0 && child.attendancePct < 70
-              ? "Attendance below 70%"
-              : "Attendance on track"
-          }
+          title={child.attendancePct > 0 && child.attendancePct < 70 ? "Attendance below 70%" : "Attendance on track"}
           desc="Review the 30-day calendar for absences."
           cta="Attendance"
           onClick={onAttendance}
@@ -250,9 +593,9 @@ function HomeTab({
           tone="info"
           icon={<TrendingUp className="h-4 w-4" />}
           title="Performance card"
-          desc={`Latest overall ${overall.toFixed(1)}/5 across batting, bowling & more.`}
-          cta="View Progress"
-          onClick={onProgress}
+          desc={`Latest overall ${overall.toFixed(1)}/5 · ${dashboardNotes.length} note${dashboardNotes.length === 1 ? "" : "s"}.`}
+          cta="View details"
+          onClick={() => onOpenScores(child)}
         />
       </div>
 
@@ -261,15 +604,20 @@ function HomeTab({
           <div className="p-5 border-b border-border flex items-center justify-between">
             <div>
               <h3 className="font-display font-semibold">Notifications</h3>
-              <p className="text-xs text-muted-foreground">Fees, attendance & academy alerts</p>
+              <p className="text-xs text-muted-foreground">Coach notes, scores, fees & attendance</p>
             </div>
             <Button size="sm" variant="ghost" className="text-primary" onClick={onMessage}>
               Message academy <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           </div>
-          <div className="divide-y divide-border">
-            {notifications.map((n, i) => (
-              <div key={i} className="px-5 py-4 flex gap-3">
+          <div className="divide-y divide-border max-h-[28rem] overflow-y-auto">
+            {notifications.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => onOpenNotification(n)}
+                className="w-full text-left px-5 py-4 flex gap-3 hover:bg-muted/20 transition-colors"
+              >
                 <div
                   className={cn(
                     "mt-1.5 h-2 w-2 rounded-full shrink-0",
@@ -279,11 +627,18 @@ function HomeTab({
                     n.tone === "info" && "bg-blue-400"
                   )}
                 />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{n.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{n.desc}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">{n.title}</p>
+                    {(n.kind === "note" || n.kind === "score") && (
+                      <Badge variant="outline" className="text-[10px]">{n.kind === "note" ? "Note" : "Scores"}</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{n.desc}</p>
+                  {n.time && <p className="text-[11px] text-muted-foreground mt-1">{fmtWhen(n.time)} · Tap to open</p>}
                 </div>
-              </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
+              </button>
             ))}
           </div>
         </div>
@@ -303,9 +658,7 @@ function HomeTab({
                     <Trophy className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{t.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t.format} · {t.startDate}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{t.format} · {t.startDate}</p>
                       <Badge variant="outline" className="mt-2 text-[10px] capitalize">{t.status}</Badge>
                     </div>
                   </div>
@@ -335,6 +688,7 @@ function HomeTab({
     </div>
   );
 }
+
 
 function AlertCard({
   tone,
@@ -475,24 +829,52 @@ function AttendanceTab({ child }: { child: ParentChild }) {
   );
 }
 
-function ProgressTab({ child }: { child: ParentChild }) {
+function ProgressTab({
+  child,
+  refreshing,
+  onRefresh,
+  onOpenNote,
+}: {
+  child: ParentChild;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  onOpenNote?: (note: NonNullable<ParentChild["notes"]>[number]) => void;
+}) {
+  const scores = child.scores || { batting: 0, bowling: 0, fielding: 0, fitness: 0, temperament: 0 };
   const rows = [
-    ["Batting", child.scores.batting],
-    ["Bowling", child.scores.bowling],
-    ["Fielding", child.scores.fielding],
-    ["Fitness", child.scores.fitness],
-    ["Temperament", child.scores.temperament],
+    ["Batting", scores.batting],
+    ["Bowling", scores.bowling],
+    ["Fielding", scores.fielding],
+    ["Fitness", scores.fitness],
+    ["Temperament", scores.temperament],
   ] as const;
-  const overall = rows.reduce((a, [, v]) => a + v, 0) / rows.length;
+  const overall = rows.reduce((a, [, v]) => a + Number(v || 0), 0) / rows.length;
+  const notes = child.notes ?? [];
+  const updatedLabel = child.scoresUpdatedAt
+    ? new Date(child.scoresUpdatedAt).toLocaleString("en-IN", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Performance" description={`Assessment scores for ${child.name}.`} />
+      <PageHeader
+        title="Performance"
+        description={`Live assessment scores for ${child.name}${updatedLabel ? ` · updated ${updatedLabel}` : ""}.`}
+        actions={
+          <Button variant="outline" size="sm" disabled={refreshing} onClick={onRefresh}>
+            {refreshing ? "Refreshing…" : "Refresh scores"}
+          </Button>
+        }
+      />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Overall" value={`${overall.toFixed(1)}/5`} icon={<TrendingUp className="h-4 w-4" />} tone="success" />
-        <StatCard label="Batting" value={`${child.scores.batting.toFixed(1)}`} />
-        <StatCard label="Bowling" value={`${child.scores.bowling.toFixed(1)}`} />
-        <StatCard label="Fielding" value={`${child.scores.fielding.toFixed(1)}`} />
+        <StatCard label="Batting" value={`${Number(scores.batting).toFixed(1)}`} />
+        <StatCard label="Bowling" value={`${Number(scores.bowling).toFixed(1)}`} />
+        <StatCard label="Fielding" value={`${Number(scores.fielding).toFixed(1)}`} />
       </div>
       <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
         <h3 className="font-display font-semibold">Skill breakdown</h3>
@@ -500,11 +882,37 @@ function ProgressTab({ child }: { child: ParentChild }) {
           <div key={l}>
             <div className="flex justify-between text-sm mb-1.5">
               <span>{l}</span>
-              <span className="text-primary font-medium">{v.toFixed(1)}/5</span>
+              <span className="text-primary font-medium">{Number(v).toFixed(1)}/5</span>
             </div>
-            <Progress value={v * 20} className="h-2" />
+            <Progress value={Number(v) * 20} className="h-2" />
           </div>
         ))}
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="p-5 border-b border-border">
+          <h3 className="font-display font-semibold">Coach notes</h3>
+          <p className="text-xs text-muted-foreground">Feedback from your child's coach</p>
+        </div>
+        {notes.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-muted-foreground">No coach notes yet.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {notes.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => onOpenNote?.(n)}
+                className="w-full text-left px-5 py-4 hover:bg-muted/20 transition-colors"
+              >
+                <p className="text-xs text-muted-foreground mb-1">
+                  {n.author || "Coach"} · {new Date(n.createdAt).toLocaleDateString("en-IN")} · Tap to open
+                </p>
+                <p className="text-sm">{n.note}</p>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

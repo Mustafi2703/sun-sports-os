@@ -113,7 +113,7 @@ export default function CoachHome() {
     setAssessBusy(true);
     try {
       await api.coachUpdateScores(assessStudent.id, scoreDraft);
-      toast.success(`Scores updated for ${assessStudent.name}`);
+      toast.success(`Scores updated for ${assessStudent.name} — parents see this on Performance`);
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Score update failed");

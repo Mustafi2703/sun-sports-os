@@ -27,6 +27,10 @@ export function mapBatch(b: Batch & { _count?: { students: number }; coach?: Coa
 }
 
 export function mapStudent(s: Student) {
+  const num = (v: number | null | undefined, fallback = 3) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
   return {
     id: s.id,
     name: s.name,
@@ -41,12 +45,13 @@ export function mapStudent(s: Student) {
     daysOverdue: s.daysOverdue,
     attendancePct: s.attendancePct,
     scores: {
-      batting: s.batting,
-      bowling: s.bowling,
-      fielding: s.fielding,
-      fitness: s.fitness,
-      temperament: s.temperament,
+      batting: num(s.batting),
+      bowling: num(s.bowling),
+      fielding: num(s.fielding),
+      fitness: num(s.fitness),
+      temperament: num(s.temperament),
     },
+    scoresUpdatedAt: s.updatedAt ? s.updatedAt.toISOString() : undefined,
     joinDate: s.joinDate ? s.joinDate.toISOString().slice(0, 10) : "",
     medicalNotes: s.medicalNotes || undefined,
     lastBowlingSpeed: Array.isArray(s.bowlingSpeeds) ? (s.bowlingSpeeds as number[]) : undefined,

@@ -279,11 +279,21 @@ api.put("/students/:id", async (req, res) => {
         ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
         ...(req.body.daysOverdue !== undefined ? { daysOverdue: Number(req.body.daysOverdue) } : {}),
         ...(req.body.attendancePct !== undefined ? { attendancePct: Number(req.body.attendancePct) } : {}),
-        ...(scores.batting !== undefined || req.body.batting !== undefined ? { batting: Number(scores.batting ?? req.body.batting) } : {}),
-        ...(scores.bowling !== undefined || req.body.bowling !== undefined ? { bowling: Number(scores.bowling ?? req.body.bowling) } : {}),
-        ...(scores.fielding !== undefined || req.body.fielding !== undefined ? { fielding: Number(scores.fielding ?? req.body.fielding) } : {}),
-        ...(scores.fitness !== undefined || req.body.fitness !== undefined ? { fitness: Number(scores.fitness ?? req.body.fitness) } : {}),
-        ...(scores.temperament !== undefined || req.body.temperament !== undefined ? { temperament: Number(scores.temperament ?? req.body.temperament) } : {}),
+        ...(scores.batting !== undefined || req.body.batting !== undefined
+          ? { batting: Math.min(5, Math.max(1, Number(scores.batting ?? req.body.batting) || 3)) }
+          : {}),
+        ...(scores.bowling !== undefined || req.body.bowling !== undefined
+          ? { bowling: Math.min(5, Math.max(1, Number(scores.bowling ?? req.body.bowling) || 3)) }
+          : {}),
+        ...(scores.fielding !== undefined || req.body.fielding !== undefined
+          ? { fielding: Math.min(5, Math.max(1, Number(scores.fielding ?? req.body.fielding) || 3)) }
+          : {}),
+        ...(scores.fitness !== undefined || req.body.fitness !== undefined
+          ? { fitness: Math.min(5, Math.max(1, Number(scores.fitness ?? req.body.fitness) || 3)) }
+          : {}),
+        ...(scores.temperament !== undefined || req.body.temperament !== undefined
+          ? { temperament: Math.min(5, Math.max(1, Number(scores.temperament ?? req.body.temperament) || 3)) }
+          : {}),
         ...(req.body.joinDate !== undefined ? { joinDate: req.body.joinDate ? new Date(req.body.joinDate) : null } : {}),
         ...(req.body.medicalNotes !== undefined ? { medicalNotes: req.body.medicalNotes } : {}),
         ...(req.body.batchId !== undefined ? { batchId: req.body.batchId || null } : {}),
