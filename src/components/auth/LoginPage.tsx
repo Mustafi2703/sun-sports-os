@@ -13,16 +13,16 @@ const COPY: Record<
 > = {
   parent: {
     title: "Parent Portal",
-    subtitle: "View your child’s fees, attendance, and progress.",
+    subtitle: "Sun Sports — fees, attendance, coach notes, and progress for your child.",
     home: "/parent",
-    hint: "Use the 10-digit WhatsApp number registered with the academy.",
+    hint: "Use the 10-digit WhatsApp number registered with Sun Sports.",
     accent: "from-emerald-600/20 to-background",
   },
   coach: {
     title: "Coach Portal",
-    subtitle: "Full academy view — batches, students, and attendance.",
+    subtitle: "Your Sun Sports batches — attendance, assessments, and notes.",
     home: "/coach",
-    hint: "Use your coach mobile number.",
+    hint: "Use your coach mobile number registered with the academy.",
     accent: "from-sky-600/20 to-background",
   },
   admin: {

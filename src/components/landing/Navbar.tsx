@@ -6,9 +6,9 @@ import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
-  { label: "Features", href: "#features" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "Case Study", href: "#case-study" },
+  { label: "For parents", href: "#parents" },
+  { label: "Training", href: "#training" },
+  { label: "Portals", href: "#portals" },
   { label: "Contact", href: "#contact" },
 ];
 
@@ -31,45 +31,61 @@ export const Navbar = () => {
       )}
     >
       <div className="container flex h-16 items-center justify-between">
-        <Link to="/"><Logo /></Link>
+        <Link to="/" aria-label="Sun Sports home">
+          <Logo />
+        </Link>
 
         <nav className="hidden md:flex items-center gap-8">
-          {links.map(l => (
-            <a key={l.href} href={l.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+          {links.map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
               {l.label}
             </a>
           ))}
         </nav>
 
         <div className="hidden md:flex items-center gap-2">
-          <Link to="/parent/login"><Button variant="ghost" size="sm">Parent</Button></Link>
-          <Link to="/coach/login"><Button variant="ghost" size="sm">Coach</Button></Link>
-          <Link to="/app/login">
-            <Button variant="default" size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-glow">
-              Team login
+          <Link to="/parent/login">
+            <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+              Parent login
             </Button>
           </Link>
         </div>
 
-        <button className="md:hidden p-2 text-foreground" onClick={() => setOpen(!open)} aria-label="Toggle menu">
+        <button
+          type="button"
+          className="md:hidden h-11 w-11 flex items-center justify-center text-foreground"
+          onClick={() => setOpen(!open)}
+          aria-label="Toggle menu"
+        >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {open && (
         <div className="md:hidden border-t border-border bg-card animate-fade-in">
-          <div className="container py-4 flex flex-col gap-3">
-            {links.map(l => (
-              <a key={l.href} href={l.href} onClick={() => setOpen(false)} className="text-sm text-muted-foreground py-2">{l.label}</a>
+          <div className="container py-4 flex flex-col gap-1">
+            {links.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={() => setOpen(false)}
+                className="text-sm text-muted-foreground py-3"
+              >
+                {l.label}
+              </a>
             ))}
-            <Link to="/parent/login" onClick={() => setOpen(false)}>
-              <Button variant="outline" className="w-full">Parent portal</Button>
+            <Link to="/parent/login" onClick={() => setOpen(false)} className="pt-2">
+              <Button className="w-full bg-primary text-primary-foreground">Parent login</Button>
             </Link>
             <Link to="/coach/login" onClick={() => setOpen(false)}>
-              <Button variant="outline" className="w-full">Coach portal</Button>
+              <Button variant="outline" className="w-full">Coach login</Button>
             </Link>
             <Link to="/app/login" onClick={() => setOpen(false)}>
-              <Button className="w-full bg-primary text-primary-foreground">Team login</Button>
+              <Button variant="ghost" className="w-full text-muted-foreground">Internal team</Button>
             </Link>
           </div>
         </div>
