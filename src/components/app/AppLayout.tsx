@@ -57,10 +57,10 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
   const userInitials = user?.name ? initialsOf(user.name) : "SS";
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-background text-foreground overflow-x-hidden">
+    <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
       <div className="flex">
         {/* Sidebar (desktop) */}
-        <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border bg-card/50 px-3 py-5">
+        <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
           <div className="px-2 mb-6"><Logo /></div>
           <nav className="flex-1 space-y-1 overflow-y-auto scrollbar-thin">
             {NAV.map(item => (
@@ -87,7 +87,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
         {mobileOpen && (
           <div className="lg:hidden fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)}>
             <aside
-              className="absolute left-0 top-0 bottom-0 w-[min(18rem,85vw)] bg-card border-r border-border p-4 pt-[max(1rem,env(safe-area-inset-top))] animate-fade-in flex flex-col safe-pb"
+              className="absolute left-0 top-0 bottom-0 w-[min(18rem,85vw)] bg-card/95 backdrop-blur-md border-r border-border/80 p-4 pt-[max(1rem,env(safe-area-inset-top))] animate-fade-in flex flex-col safe-pb"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-5">
@@ -113,7 +113,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
 
         {/* Main */}
         <main className="flex-1 min-w-0 pb-nav">
-          <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border safe-pt">
+          <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-md border-b border-border/70 safe-pt">
             <div className="px-3 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-2 safe-px">
               <div className="flex items-center gap-2 min-w-0">
                 <button
@@ -160,7 +160,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-card/95 backdrop-blur safe-pb safe-px">
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border/70 bg-card/90 backdrop-blur-md safe-pb safe-px">
         <ul className="grid grid-cols-5">
           {MOBILE_NAV.map(item => {
             const Icon = item.icon;

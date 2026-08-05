@@ -17,7 +17,7 @@ export function RequireAuth({
   // a matching user (fresh login), let them through immediately.
   if (loading && !(user?.role === role && token)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
+      <div className="app-shell min-h-screen flex items-center justify-center text-muted-foreground text-sm">
         Checking session…
       </div>
     );

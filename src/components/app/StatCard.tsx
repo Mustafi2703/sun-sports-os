@@ -19,7 +19,7 @@ const toneMap: Record<string, string> = {
 };
 
 export const StatCard = ({ label, value, icon, trend, tone = "default", hint }: StatCardProps) => (
-  <div className="rounded-2xl border border-border bg-card p-3.5 sm:p-5 hover:border-primary/30 transition-colors min-w-0">
+  <div className="surface rounded-2xl p-3.5 sm:p-5 hover:border-primary/35 transition-colors min-w-0">
     <div className="flex items-start justify-between gap-2">
       <p className="text-[11px] sm:text-sm text-muted-foreground leading-snug">{label}</p>
       {icon && (

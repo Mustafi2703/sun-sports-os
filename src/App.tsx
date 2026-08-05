@@ -8,7 +8,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { LoginPage } from "@/components/auth/LoginPage";
 import NotFound from "./pages/NotFound.tsx";
-import Landing from "./pages/Landing";
+import PortalGate from "./pages/PortalGate";
 import { AppLayout } from "./components/app/AppLayout";
 import Dashboard from "./pages/app/Dashboard";
 import Students from "./pages/app/Students";
@@ -45,7 +45,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<PortalGate />} />
 
             <Route path="/parent/login" element={<LoginPage portal="parent" />} />
             <Route
