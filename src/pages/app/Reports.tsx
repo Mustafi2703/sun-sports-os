@@ -20,7 +20,10 @@ const Reports = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Reports" description="One-click reports for your records, board, or accountant." />
+      <PageHeader title="Reports" description="Live revenue chart available; PDF/Share export comes next." />
+      <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        Monthly revenue uses live payment data. Other report cards are preview layouts for the demo.
+      </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
         {REPORTS.map(r => (

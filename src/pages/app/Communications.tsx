@@ -28,7 +28,10 @@ const Communications = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Communications" description="Automate routine messages and send manual broadcasts." />
+      <PageHeader title="Communications" description="Message previews and automation ideas — WhatsApp delivery connects after Meta Business setup." />
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        Demo UI only — toggles and Send do not deliver messages yet. Use Fees → Open WhatsApp for one-off parent outreach.
+      </div>
 
       <Tabs defaultValue="automated">
         <TabsList>

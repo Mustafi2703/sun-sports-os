@@ -75,6 +75,26 @@ export default function CoachHome() {
     setScoreDraft({ ...assessStudent.scores });
   }, [assessStudent?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reload saved marks when date / batch changes (same as admin attendance)
+  useEffect(() => {
+    if (!date || !activeBatch) {
+      setMarks({});
+      return;
+    }
+    void api
+      .listAttendance({ date, batchId: activeBatch })
+      .then((rows) => {
+        const next: Record<string, AttendanceMark> = {};
+        for (const r of rows) {
+          if (r.status === "present" || r.status === "absent" || r.status === "late") {
+            next[r.studentId] = r.status;
+          }
+        }
+        setMarks(next);
+      })
+      .catch(() => setMarks({}));
+  }, [date, activeBatch]);
+
   const overdue = students.filter((s) => s.feeStatus !== "paid");
   const lowAtt = students.filter((s) => s.attendancePct > 0 && s.attendancePct < 70);
   const avgAtt = students.length
@@ -152,7 +172,14 @@ export default function CoachHome() {
     try {
       await api.coachSaveAttendance({ date, batchId: activeBatch, marks: payload });
       toast.success(`Saved ${payload.length} marks`);
-      setMarks({});
+      const rows = await api.listAttendance({ date, batchId: activeBatch });
+      const next: Record<string, AttendanceMark> = {};
+      for (const r of rows) {
+        if (r.status === "present" || r.status === "absent" || r.status === "late") {
+          next[r.studentId] = r.status;
+        }
+      }
+      setMarks(next);
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");

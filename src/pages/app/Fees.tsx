@@ -41,9 +41,12 @@ const Fees = () => {
 
   const overdueIds = students.filter(s => s.feeStatus !== "paid").map(s => s.id);
 
+  const feeMonth = new Date().toLocaleString("en-IN", { month: "short", year: "numeric" });
+  const overdueCount = students.filter((s) => s.feeStatus !== "paid").length;
+
   const recordPayment = async (studentId: string, amount: number) => {
     try {
-      await api.createPayment({ studentId, amount, method: "cash", month: "Jul 2026", note: "Manual entry" });
+      await api.createPayment({ studentId, amount, method: "cash", month: feeMonth, note: "Manual entry" });
       toast.success("Payment recorded");
       await refresh();
     } catch (e) {
@@ -53,12 +56,12 @@ const Fees = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Fee Management" description="Track collections, send reminders, and reconcile payments." />
+      <PageHeader title="Fee Management" description="Track collections, record payments, and preview reminders." />
 
       <div className="grid sm:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard label="Collected this month" value={inr(monthlyRevenue)} icon={<CreditCard className="h-4 w-4" />} tone="success" trend={{ value: "+12%", up: true }} />
-        <StatCard label="Total overdue" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} tone="danger" hint={`${students.filter(s => s.feeStatus !== "paid").length} students`} />
-        <StatCard label="Upcoming next 7 days" value={inr(upcoming)} icon={<Calendar className="h-4 w-4" />} hint={`${Math.min(8, students.length)} students`} />
+        <StatCard label="Collected this month" value={inr(monthlyRevenue)} icon={<CreditCard className="h-4 w-4" />} tone="success" />
+        <StatCard label="Total overdue" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} tone="danger" hint={`${overdueCount} students`} />
+        <StatCard label="Fee book (roster)" value={inr(upcoming)} icon={<Calendar className="h-4 w-4" />} hint={`${Math.min(8, students.length)} students`} />
       </div>
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
@@ -131,11 +134,14 @@ const Fees = () => {
   );
 };
 
-const ReminderModal = ({ ids, students, onClose }: { ids: string[] | null; students: { id: string; name: string; feeAmount: number; daysOverdue: number; parentName: string }[]; onClose: () => void }) => {
+const ReminderModal = ({ ids, students, onClose }: { ids: string[] | null; students: { id: string; name: string; feeAmount: number; daysOverdue: number; parentName: string; parentPhone?: string }[]; onClose: () => void }) => {
   if (!ids) return null;
   const sample = students.find(s => s.id === ids[0]);
   if (!sample) return null;
   const amount = "₹" + sample.feeAmount.toLocaleString("en-IN");
+  const feeMonth = new Date().toLocaleString("en-IN", { month: "short", year: "numeric" });
+  const phone = (sample.parentPhone || "").replace(/\D/g, "").slice(-10);
+  const text = `Hi ${sample.parentName}, friendly reminder that ${sample.name}'s fee of ${amount} for ${feeMonth} is overdue. Please pay at your earliest convenience. — Sun Sports`;
   return (
     <Dialog open={!!ids} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
@@ -143,23 +149,29 @@ const ReminderModal = ({ ids, students, onClose }: { ids: string[] | null; stude
           <DialogTitle>WhatsApp Reminder Preview</DialogTitle>
         </DialogHeader>
         <div className="rounded-2xl bg-emerald-950/40 border border-emerald-700/30 p-4">
-          <div className="rounded-lg bg-emerald-900/40 p-3 text-sm text-foreground/90 leading-relaxed">
-            Hi <span className="font-semibold">{sample.parentName}</span>, this is a friendly reminder that <span className="font-semibold">{sample.name}'s</span> fee of <span className="font-semibold">{amount}</span> for July 2026 is overdue.
-            <br /><br />
-            Please pay at your earliest convenience:
-            <br />
-            <span className="inline-block mt-2 text-emerald-300 underline">[Pay Now via UPI →]</span>
-            <br /><br />
-            Sun Sports — High Performance
+          <div className="rounded-lg bg-emerald-900/40 p-3 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+            {text}
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {ids.length === 1 ? "1 message will be sent" : `${ids.length} messages will be sent — each personalized with parent name, student name and amount.`}
+          Opens WhatsApp with a prefilled message (Meta Business bulk send not connected yet).
+          {ids.length > 1 ? ` Preview shows 1 of ${ids.length} selected.` : ""}
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => { toast.success(`${ids.length} reminder${ids.length>1?'s':''} queued (Meta Business connection pending)`); onClose(); }}>
-            <Send className="h-4 w-4 mr-1.5" /> Confirm & Send
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => {
+              if (phone.length >= 10) {
+                window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+                toast.success("Opening WhatsApp");
+              } else {
+                toast.error("No parent WhatsApp on this student");
+              }
+              onClose();
+            }}
+          >
+            <Send className="h-4 w-4 mr-1.5" /> Open WhatsApp
           </Button>
         </DialogFooter>
       </DialogContent>

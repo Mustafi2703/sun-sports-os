@@ -78,7 +78,7 @@ const Settings = () => {
     try {
       if (coachEdit) await api.updateCoach(coachEdit.id, coachForm);
       else await api.createCoach(coachForm);
-      toast.success(coachEdit ? "Coach updated" : "Coach added — portal login created");
+      toast.success(coachEdit ? "Coach updated" : "Coach added — portal login ready");
       setCoachEdit(undefined);
       await refresh();
       await loadUsers();
@@ -270,7 +270,7 @@ const Settings = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCoachEdit(undefined)}>Cancel</Button>
-            <Button className="bg-primary text-primary-foreground" disabled={busy || !coachForm.name.trim()} onClick={() => void saveCoach()}>
+            <Button className="bg-primary text-primary-foreground" disabled={busy || !coachForm.name.trim() || coachForm.phone.replace(/\D/g, "").length < 10} onClick={() => void saveCoach()}>
               {busy ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>

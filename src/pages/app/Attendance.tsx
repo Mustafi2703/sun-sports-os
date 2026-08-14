@@ -173,7 +173,22 @@ const Attendance = () => {
                     <p className="text-sm font-medium truncate">{s.name}</p>
                     <p className="text-xs text-destructive">{s.attendancePct}% attendance</p>
                   </div>
-                  <Button size="sm" variant="ghost" className="h-8 px-2 text-primary"><MessageCircle className="h-3.5 w-3.5" /></Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-primary"
+                    onClick={() => {
+                      const phone = (s.parentPhone || "").replace(/\D/g, "").slice(-10);
+                      if (phone.length < 10) {
+                        toast.error("No parent WhatsApp on this student");
+                        return;
+                      }
+                      const text = `Hi, this is Sun Sports. ${s.name}'s attendance is currently ${s.attendancePct}%. Please ensure regular sessions.`;
+                      window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               ))}
             </div>

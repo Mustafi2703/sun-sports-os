@@ -94,11 +94,15 @@ api.get("/coaches", async (_req, res) => {
 api.post("/coaches", async (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "name required" });
+  const phone = normalizePhone(req.body.phone);
+  if (!phone || phone.length < 10) {
+    return res.status(400).json({ error: "Valid 10-digit coach phone required for portal login" });
+  }
   const initials = name.split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase();
   const row = await prisma.coach.create({
     data: {
       name,
-      phone: req.body.phone || null,
+      phone,
       email: req.body.email || null,
       specialty: req.body.specialty || null,
       initials,
@@ -115,11 +119,21 @@ api.post("/coaches", async (req, res) => {
 api.put("/coaches/:id", async (req, res) => {
   const name = req.body.name != null ? String(req.body.name).trim() : undefined;
   try {
+    const phoneUpdate =
+      req.body.phone !== undefined
+        ? (() => {
+            const phone = normalizePhone(req.body.phone);
+            if (!phone || phone.length < 10) {
+              throw new Error("phone_invalid");
+            }
+            return phone;
+          })()
+        : undefined;
     const row = await prisma.coach.update({
       where: { id: req.params.id },
       data: {
         ...(name != null ? { name, initials: name.split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase() } : {}),
-        ...(req.body.phone !== undefined ? { phone: req.body.phone } : {}),
+        ...(phoneUpdate !== undefined ? { phone: phoneUpdate } : {}),
         ...(req.body.email !== undefined ? { email: req.body.email } : {}),
         ...(req.body.specialty !== undefined ? { specialty: req.body.specialty } : {}),
       },
@@ -130,7 +144,10 @@ api.put("/coaches/:id", async (req, res) => {
       console.warn("ensureCoachUser:", e);
     }
     res.json(mapCoach(row));
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === "phone_invalid") {
+      return res.status(400).json({ error: "Valid 10-digit coach phone required" });
+    }
     res.status(404).json({ error: "Coach not found" });
   }
 });
