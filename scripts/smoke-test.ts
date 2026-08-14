@@ -259,6 +259,63 @@ async function run() {
     assert("New student parent can login", r.ok && !!(r.json as { token?: string })?.token, String(r.status));
   }
 
+  // Cross-portal sync: team update → parent sees right child; coach batch roster
+  {
+    const parentTok = (
+      await req("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ phone: "9800011122", pin: PIN, portal: "parent" }),
+      })
+    ).json as { token?: string };
+    const before = await req("/api/portal/parent", { token: parentTok.token });
+    const kids = (before.json as { children?: { id: string; name: string; feeStatus: string; scores: { batting: number } }[] })
+      ?.children || [];
+    const kid = kids.find((c) => c.id === studentId);
+    assert("Parent portal shows new student only for that phone", !!kid, `kids=${kids.length}`);
+
+    await req(`/api/students/${studentId}`, {
+      method: "PUT",
+      token: adminToken,
+      body: JSON.stringify({ scores: { batting: 4.5, bowling: 3, fielding: 3, fitness: 3, temperament: 3 } }),
+    });
+    await req("/api/payments", {
+      method: "POST",
+      token: adminToken,
+      body: JSON.stringify({ studentId, amount: 15000, method: "upi", month: "Aug 2026" }),
+    });
+
+    const after = await req("/api/portal/parent", { token: parentTok.token });
+    const updated = ((after.json as { children?: { id: string; feeStatus: string; scores: { batting: number } }[] })
+      ?.children || []).find((c) => c.id === studentId);
+    assert(
+      "Parent sees team fee+score updates for right student",
+      !!updated && updated.feeStatus === "paid" && Number(updated.scores?.batting) === 4.5,
+      JSON.stringify(updated?.feeStatus)
+    );
+
+    // Change parent phone → old phone loses child, new phone gains
+    const newPhone = "9800011133";
+    await req(`/api/students/${studentId}`, {
+      method: "PUT",
+      token: adminToken,
+      body: JSON.stringify({ parentPhone: newPhone, parentName: "Smoke Parent 2" }),
+    });
+    const oldPortal = await req("/api/portal/parent", { token: parentTok.token });
+    const oldKids = (oldPortal.json as { children?: unknown[] })?.children || [];
+    assert("Old parent phone no longer sees moved student", !oldKids.some((c: { id?: string }) => c.id === studentId));
+
+    const newLogin = await req("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ phone: newPhone, pin: PIN, portal: "parent" }),
+    });
+    assert("New parent phone can login after update", newLogin.ok, String(newLogin.status));
+    const newPortal = await req("/api/portal/parent", {
+      token: (newLogin.json as { token?: string }).token,
+    });
+    const newKids = (newPortal.json as { children?: { id: string }[] })?.children || [];
+    assert("New parent phone sees the student", newKids.some((c) => c.id === studentId));
+  }
+
   // Coach assessments + notes
   {
     const r = await req(`/api/portal/coach/students/${studentId}/scores`, {

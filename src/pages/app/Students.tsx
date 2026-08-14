@@ -54,9 +54,20 @@ const Students = () => {
         joinDate: values.joinDate || undefined,
         medicalNotes: values.medicalNotes,
       };
-      if (editing) await api.updateStudent(editing.id, body);
-      else await api.createStudent(body);
-      toast.success(editing ? "Student updated" : "Student added");
+      if (editing) {
+        await api.updateStudent(editing.id, body);
+        const phoneChanged =
+          (editing.parentPhone || "").replace(/\D/g, "").slice(-10) !==
+          (values.parentPhone || "").replace(/\D/g, "").slice(-10);
+        toast.success(
+          phoneChanged
+            ? `Student updated — parent must sign in with ${values.parentPhone.replace(/\D/g, "").slice(-10)}`
+            : "Student updated — parent & coach portals stay in sync"
+        );
+      } else {
+        await api.createStudent(body);
+        toast.success("Student added — parent portal login ready for that WhatsApp");
+      }
       setEditing(undefined);
       await refresh();
     } catch (e) {

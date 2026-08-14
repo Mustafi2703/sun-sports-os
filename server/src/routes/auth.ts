@@ -9,6 +9,7 @@ import {
   type AuthUser,
 } from "../lib/auth.js";
 import { authMethods, createAndSendOtp, pinAuthAllowed, purgeExpiredOtps, verifyOtpCode } from "../lib/otp.js";
+import { coachLinkedToPhone, studentLinkedToParentPhone } from "../lib/ensureUser.js";
 
 export const authRouter = Router();
 
@@ -53,10 +54,7 @@ function loginResponse(user: AuthUser) {
  */
 async function findPortalUser(phone: string, portal: AuthUser["role"]) {
   if (portal === "parent") {
-    const linked = await prisma.student.findFirst({
-      where: { parentPhone: phone },
-      select: { id: true },
-    });
+    const linked = await studentLinkedToParentPhone(phone);
     if (!linked) {
       return {
         user: null,
@@ -68,10 +66,7 @@ async function findPortalUser(phone: string, portal: AuthUser["role"]) {
   }
 
   if (portal === "coach") {
-    const linked = await prisma.coach.findFirst({
-      where: { phone },
-      select: { id: true },
-    });
+    const linked = await coachLinkedToPhone(phone);
     if (!linked) {
       return {
         user: null,

@@ -10,7 +10,7 @@ import {
   todayAttendanceStats,
 } from "../lib/attendance.js";
 import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
-import { ensureCoachUser, ensureParentUser } from "../lib/ensureUser.js";
+import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
 
 export const api = Router();
@@ -109,7 +109,12 @@ api.post("/coaches", async (req, res) => {
     },
   });
   try {
-    await ensureCoachUser({ coachId: row.id, name: row.name, phone: row.phone });
+    await syncCoachAccess({
+      coachId: row.id,
+      name: row.name,
+      oldPhone: null,
+      newPhone: row.phone,
+    });
   } catch (e) {
     console.warn("ensureCoachUser:", e);
   }
@@ -119,6 +124,9 @@ api.post("/coaches", async (req, res) => {
 api.put("/coaches/:id", async (req, res) => {
   const name = req.body.name != null ? String(req.body.name).trim() : undefined;
   try {
+    const existing = await prisma.coach.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Coach not found" });
+
     const phoneUpdate =
       req.body.phone !== undefined
         ? (() => {
@@ -139,7 +147,12 @@ api.put("/coaches/:id", async (req, res) => {
       },
     });
     try {
-      await ensureCoachUser({ coachId: row.id, name: row.name, phone: row.phone });
+      await syncCoachAccess({
+        coachId: row.id,
+        name: row.name,
+        oldPhone: existing.phone,
+        newPhone: row.phone,
+      });
     } catch (e) {
       console.warn("ensureCoachUser:", e);
     }
@@ -154,7 +167,19 @@ api.put("/coaches/:id", async (req, res) => {
 
 api.delete("/coaches/:id", async (req, res) => {
   try {
+    const existing = await prisma.coach.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Coach not found" });
     await prisma.coach.delete({ where: { id: req.params.id } });
+    try {
+      await syncCoachAccess({
+        coachId: existing.id,
+        name: existing.name,
+        oldPhone: existing.phone,
+        newPhone: null,
+      });
+    } catch (e) {
+      console.warn("syncCoachAccess:", e);
+    }
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Coach not found" });
@@ -276,7 +301,11 @@ api.post("/students", async (req, res) => {
     },
   });
   try {
-    await ensureParentUser(row.parentPhone, row.parentName);
+    await syncParentAccess({
+      oldPhone: null,
+      newPhone: row.parentPhone,
+      parentName: row.parentName,
+    });
   } catch (e) {
     console.warn("ensureParentUser:", e);
   }
@@ -285,6 +314,20 @@ api.post("/students", async (req, res) => {
 
 api.put("/students/:id", async (req, res) => {
   try {
+    const existing = await prisma.student.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Student not found" });
+
+    let nextParentPhone: string | undefined;
+    if (req.body.parentPhone !== undefined) {
+      const phone = normalizePhone(req.body.parentPhone);
+      if (!phone || phone.length < 10) {
+        return res.status(400).json({
+          error: "Valid 10-digit parent WhatsApp required — this keeps the parent portal in sync",
+        });
+      }
+      nextParentPhone = phone;
+    }
+
     const dob = req.body.dob !== undefined ? (req.body.dob ? new Date(req.body.dob) : null) : undefined;
     const scores = req.body.scores || {};
     const row = await prisma.student.update({
@@ -294,9 +337,7 @@ api.put("/students/:id", async (req, res) => {
         ...(dob !== undefined ? { dob, age: ageFromDob(dob) } : {}),
         ...(req.body.age !== undefined ? { age: Number(req.body.age) } : {}),
         ...(req.body.parentName !== undefined ? { parentName: req.body.parentName } : {}),
-        ...(req.body.parentPhone !== undefined
-          ? { parentPhone: normalizePhone(req.body.parentPhone) || req.body.parentPhone || null }
-          : {}),
+        ...(nextParentPhone !== undefined ? { parentPhone: nextParentPhone } : {}),
         ...(req.body.role !== undefined ? { role: req.body.role } : {}),
         ...(req.body.feeStatus !== undefined ? { feeStatus: req.body.feeStatus } : {}),
         ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
@@ -323,10 +364,15 @@ api.put("/students/:id", async (req, res) => {
       },
     });
     try {
-      await ensureParentUser(row.parentPhone, row.parentName);
+      await syncParentAccess({
+        oldPhone: existing.parentPhone,
+        newPhone: row.parentPhone,
+        parentName: row.parentName,
+      });
     } catch (e) {
       console.warn("ensureParentUser:", e);
     }
+    res.setHeader("Cache-Control", "no-store");
     res.json(mapStudent(row));
   } catch {
     res.status(404).json({ error: "Student not found" });
@@ -335,7 +381,18 @@ api.put("/students/:id", async (req, res) => {
 
 api.delete("/students/:id", async (req, res) => {
   try {
+    const existing = await prisma.student.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Student not found" });
     await prisma.student.delete({ where: { id: req.params.id } });
+    try {
+      await syncParentAccess({
+        oldPhone: existing.parentPhone,
+        newPhone: null,
+        parentName: existing.parentName,
+      });
+    } catch (e) {
+      console.warn("syncParentAccess:", e);
+    }
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Student not found" });
@@ -375,6 +432,7 @@ api.post("/payments", async (req, res) => {
       data: { feeStatus: "paid", daysOverdue: 0 },
     });
   }
+  res.setHeader("Cache-Control", "no-store");
   res.status(201).json(payment);
 });
 
@@ -642,7 +700,7 @@ api.post("/users", async (req, res) => {
     return res.status(400).json({ error: "role must be parent, coach, or admin" });
   }
   if (role === "parent") {
-    const linked = await prisma.student.findFirst({ where: { parentPhone: phone }, select: { id: true } });
+    const linked = await studentLinkedToParentPhone(phone);
     if (!linked) {
       return res.status(400).json({
         error: "Add a student with this parent WhatsApp first — only onboarded parent phones can log in",
@@ -650,7 +708,7 @@ api.post("/users", async (req, res) => {
     }
   }
   if (role === "coach") {
-    const linked = await prisma.coach.findFirst({ where: { phone }, select: { id: true } });
+    const linked = await coachLinkedToPhone(phone);
     if (!linked) {
       return res.status(400).json({
         error: "Add this coach under Settings → Coaches first — only onboarded coach phones can log in",

@@ -188,6 +188,11 @@ export default function CoachHome() {
     }
   };
 
+  const onTabChange = (id: string) => {
+    setTab(id);
+    void refresh().catch(() => undefined);
+  };
+
   const tabs = [
     { id: "home", label: "Dashboard", shortLabel: "Home", icon: <Home className="h-4 w-4" /> },
     { id: "students", label: "Players", shortLabel: "Players", icon: <Users className="h-4 w-4" /> },
@@ -203,7 +208,7 @@ export default function CoachHome() {
       roleLabel="Coach"
       tabs={tabs}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={onTabChange}
     >
       {loading && <p className="text-sm text-muted-foreground py-8 text-center">Loading coach dashboard…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}

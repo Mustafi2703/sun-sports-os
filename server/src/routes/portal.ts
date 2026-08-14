@@ -32,11 +32,14 @@ function mapTournament(row: {
   };
 }
 
-/** Parent: children + fees + attendance + progress + relevant tournaments */
+/** Parent: children + fees + attendance + progress + tournaments for those kids only */
 portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const phone = normalizePhone(req.user!.parentPhone || req.user!.phone);
-  const students = await prisma.student.findMany({ orderBy: { name: "asc" } });
+  const students = await prisma.student.findMany({
+    where: { parentPhone: { not: null } },
+    orderBy: { name: "asc" },
+  });
   const mine = students.filter((s) => normalizePhone(s.parentPhone) === phone);
   const myIds = new Set(mine.map((s) => s.id));
   const batches = await prisma.batch.findMany({
@@ -83,7 +86,7 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
   const allTournaments = await prisma.tournament.findMany({ orderBy: { startDate: "desc" } });
   const tournaments = allTournaments
     .map(mapTournament)
-    .filter((t) => t.studentIds.some((id) => myIds.has(id)) || t.status !== "completed")
+    .filter((t) => t.studentIds.some((id) => myIds.has(id)))
     .slice(0, 10);
 
   res.json({
@@ -98,13 +101,27 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
  * Also returns coaching team list and tournaments involving their players.
  */
 portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const coachId = req.user!.coachId;
-  const coach = coachId
+  const phone = normalizePhone(req.user!.phone);
+  let coach = coachId
     ? await prisma.coach.findUnique({ where: { id: coachId } })
-    : await prisma.coach.findFirst({ where: { phone: { contains: req.user!.phone.slice(-10) } } });
+    : null;
+  if (!coach) {
+    const all = await prisma.coach.findMany({ where: { phone: { not: null } } });
+    coach = all.find((c) => normalizePhone(c.phone) === phone) || null;
+  }
 
   if (!coach) {
     return res.status(404).json({ error: "Coach profile not linked — contact academy admin" });
+  }
+
+  // Heal stale JWT coachId link
+  if (coachId !== coach.id) {
+    await prisma.user.updateMany({
+      where: { phone, role: "coach" },
+      data: { coachId: coach.id },
+    });
   }
 
   const batches = await prisma.batch.findMany({
@@ -126,7 +143,7 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
 
   const tournaments = allTournaments
     .map(mapTournament)
-    .filter((t) => t.studentIds.some((id) => studentIds.has(id)) || t.status !== "completed")
+    .filter((t) => t.studentIds.some((id) => studentIds.has(id)))
     .slice(0, 10);
 
   // Notes for my students (latest)
