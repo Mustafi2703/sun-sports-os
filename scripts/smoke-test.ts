@@ -68,6 +68,15 @@ async function run() {
       });
       assert("POST /api/auth/verify-otp admin", verified.ok && !!(verified.json as { token?: string })?.token);
     }
+    const blocked = await req("/api/auth/request-otp", {
+      method: "POST",
+      body: JSON.stringify({ phone: "9111222333", portal: "parent" }),
+    });
+    assert(
+      "Unknown phone cannot request OTP",
+      blocked.status === 403,
+      String((blocked.json as { error?: string })?.error || blocked.status)
+    );
   }
 
   // Snapshot requires admin

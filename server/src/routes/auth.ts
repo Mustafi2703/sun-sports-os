@@ -44,20 +44,69 @@ function loginResponse(user: AuthUser) {
   };
 }
 
+/**
+ * Only onboarded phones can authenticate:
+ * - parent → must appear as Student.parentPhone (academy roster)
+ * - coach  → must appear on a Coach.phone
+ * - admin  → must have an admin User row
+ * Random / unknown numbers never get OTP or PIN access.
+ */
 async function findPortalUser(phone: string, portal: AuthUser["role"]) {
+  if (portal === "parent") {
+    const linked = await prisma.student.findFirst({
+      where: { parentPhone: phone },
+      select: { id: true },
+    });
+    if (!linked) {
+      return {
+        user: null,
+        wrongPortal: null as string | null,
+        notOnboarded:
+          "This phone is not onboarded. Ask the academy to add your WhatsApp on the student profile.",
+      };
+    }
+  }
+
+  if (portal === "coach") {
+    const linked = await prisma.coach.findFirst({
+      where: { phone },
+      select: { id: true },
+    });
+    if (!linked) {
+      return {
+        user: null,
+        wrongPortal: null as string | null,
+        notOnboarded:
+          "This phone is not onboarded as a coach. Ask the academy to add your number in Settings → Coaches.",
+      };
+    }
+  }
+
   const user = await prisma.user.findUnique({
     where: { phone_role: { phone, role: portal } },
   });
-  if (user) return { user, wrongPortal: null as string | null };
+  if (user) {
+    return { user, wrongPortal: null as string | null, notOnboarded: null as string | null };
+  }
+
   const other = await prisma.user.findFirst({ where: { phone } });
   if (other) {
     const where = other.role === "admin" ? "/app/login" : `/${other.role}/login`;
     return {
       user: null,
       wrongPortal: `This phone is registered for the ${other.role} portal. Use ${where}`,
+      notOnboarded: null as string | null,
     };
   }
-  return { user: null, wrongPortal: null };
+
+  return {
+    user: null,
+    wrongPortal: null as string | null,
+    notOnboarded:
+      portal === "admin"
+        ? "This phone is not onboarded for the team portal."
+        : "This phone is not onboarded for this portal.",
+  };
 }
 
 authRouter.get("/methods", (_req, res) => {
@@ -76,16 +125,12 @@ authRouter.post("/request-otp", async (req, res) => {
     }
     if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
 
-    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
     if (wrongPortal) return res.status(403).json({ error: wrongPortal });
-    if (!user) {
-      return res.status(404).json({
-        error:
-          portal === "parent"
-            ? "No parent account for this phone. Ask the academy to add your WhatsApp on the student profile."
-            : portal === "coach"
-              ? "No coach account for this phone. Ask the academy to add your coach phone in Settings."
-              : "No team account for this phone.",
+    if (notOnboarded || !user) {
+      // Do not create or send OTP for unknown numbers
+      return res.status(403).json({
+        error: notOnboarded || "This phone is not onboarded for this portal.",
       });
     }
 
@@ -117,9 +162,13 @@ authRouter.post("/verify-otp", async (req, res) => {
     if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
     if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the OTP from SMS" });
 
-    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
     if (wrongPortal) return res.status(403).json({ error: wrongPortal });
-    if (!user) return res.status(401).json({ error: "Invalid phone or OTP" });
+    if (notOnboarded || !user) {
+      return res.status(403).json({
+        error: notOnboarded || "This phone is not onboarded for this portal.",
+      });
+    }
 
     const check = await verifyOtpCode(phone, portal, otp);
     if (!check.ok) return res.status(401).json({ error: check.error });
@@ -146,9 +195,13 @@ authRouter.post("/login", async (req, res) => {
     if (!pin) return res.status(400).json({ error: "PIN required" });
     if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
 
-    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
     if (wrongPortal) return res.status(403).json({ error: wrongPortal });
-    if (!user) return res.status(401).json({ error: "Invalid phone or PIN" });
+    if (notOnboarded || !user) {
+      return res.status(403).json({
+        error: notOnboarded || "This phone is not onboarded for this portal.",
+      });
+    }
 
     const ok = await verifyPin(pin, user.pinHash);
     if (!ok) return res.status(401).json({ error: "Invalid phone or PIN" });

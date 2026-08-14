@@ -297,6 +297,9 @@ const Settings = () => {
               </Select>
             </div>
             <div className="space-y-1.5"><Label className="text-xs">Backup PIN</Label><Input value={userForm.pin} onChange={(e) => setUserForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))} /></div>
+            <p className="text-[11px] text-muted-foreground">
+              Parents need a student with this WhatsApp first. Coaches need a coach row with this phone first. Only onboarded numbers can OTP/PIN login.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUserOpen(false)}>Cancel</Button>

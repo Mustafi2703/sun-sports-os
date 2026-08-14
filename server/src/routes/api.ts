@@ -624,6 +624,22 @@ api.post("/users", async (req, res) => {
   if (!["parent", "coach", "admin"].includes(role)) {
     return res.status(400).json({ error: "role must be parent, coach, or admin" });
   }
+  if (role === "parent") {
+    const linked = await prisma.student.findFirst({ where: { parentPhone: phone }, select: { id: true } });
+    if (!linked) {
+      return res.status(400).json({
+        error: "Add a student with this parent WhatsApp first — only onboarded parent phones can log in",
+      });
+    }
+  }
+  if (role === "coach") {
+    const linked = await prisma.coach.findFirst({ where: { phone }, select: { id: true } });
+    if (!linked) {
+      return res.status(400).json({
+        error: "Add this coach under Settings → Coaches first — only onboarded coach phones can log in",
+      });
+    }
+  }
   const pin = String(req.body.pin || getDefaultPin()).trim();
   if (!pin) return res.status(400).json({ error: "PIN required" });
 
