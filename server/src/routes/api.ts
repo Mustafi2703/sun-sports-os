@@ -9,7 +9,7 @@ import {
   recomputeAttendancePctMany,
   todayAttendanceStats,
 } from "../lib/attendance.js";
-import { requireAuth } from "../lib/auth.js";
+import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { ensureCoachUser, ensureParentUser } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
 
@@ -228,6 +228,12 @@ api.get("/students/:id", async (req, res) => {
 api.post("/students", async (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "name required" });
+  const parentPhone = normalizePhone(req.body.parentPhone);
+  if (!parentPhone || parentPhone.length < 10) {
+    return res.status(400).json({
+      error: "Valid 10-digit parent WhatsApp required — this creates the parent portal login",
+    });
+  }
   const dob = req.body.dob ? new Date(req.body.dob) : null;
   const row = await prisma.student.create({
     data: {
@@ -235,7 +241,7 @@ api.post("/students", async (req, res) => {
       dob,
       age: ageFromDob(dob) ?? (Number(req.body.age) || 12),
       parentName: req.body.parentName || null,
-      parentPhone: normalizePhone(req.body.parentPhone) || req.body.parentPhone || null,
+      parentPhone,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
       feeAmount: Number(req.body.feeAmount) || 15000,
@@ -591,5 +597,95 @@ api.delete("/tournaments/:id", async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Tournament not found" });
+  }
+});
+
+// ─── Portal users (admin) ───────────────────────────────────────────
+api.get("/users", async (_req, res) => {
+  const rows = await prisma.user.findMany({ orderBy: [{ role: "asc" }, { name: "asc" }] });
+  res.json(
+    rows.map((u) => ({
+      id: u.id,
+      phone: u.phone,
+      role: u.role,
+      name: u.name,
+      coachId: u.coachId,
+      parentPhone: u.parentPhone,
+      createdAt: u.createdAt.toISOString(),
+    }))
+  );
+});
+
+api.post("/users", async (req, res) => {
+  const phone = normalizePhone(req.body.phone);
+  const role = String(req.body.role || "").trim();
+  const name = String(req.body.name || "").trim() || "User";
+  if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
+  if (!["parent", "coach", "admin"].includes(role)) {
+    return res.status(400).json({ error: "role must be parent, coach, or admin" });
+  }
+  const pin = String(req.body.pin || getDefaultPin()).trim();
+  if (!pin) return res.status(400).json({ error: "PIN required" });
+
+  try {
+    const row = await prisma.user.create({
+      data: {
+        phone,
+        role,
+        name,
+        pinHash: await hashPin(pin),
+        coachId: req.body.coachId || null,
+        parentPhone: role === "parent" ? phone : null,
+      },
+    });
+    res.status(201).json({
+      id: row.id,
+      phone: row.phone,
+      role: row.role,
+      name: row.name,
+      coachId: row.coachId,
+      parentPhone: row.parentPhone,
+      createdAt: row.createdAt.toISOString(),
+    });
+  } catch {
+    res.status(409).json({ error: "User already exists for this phone + portal" });
+  }
+});
+
+api.put("/users/:id", async (req, res) => {
+  try {
+    const data: {
+      name?: string;
+      pinHash?: string;
+      coachId?: string | null;
+      parentPhone?: string | null;
+    } = {};
+    if (req.body.name != null) data.name = String(req.body.name).trim();
+    if (req.body.pin) data.pinHash = await hashPin(String(req.body.pin).trim());
+    if (req.body.coachId !== undefined) data.coachId = req.body.coachId || null;
+    if (req.body.parentPhone !== undefined) {
+      data.parentPhone = normalizePhone(req.body.parentPhone) || null;
+    }
+    const row = await prisma.user.update({ where: { id: req.params.id }, data });
+    res.json({
+      id: row.id,
+      phone: row.phone,
+      role: row.role,
+      name: row.name,
+      coachId: row.coachId,
+      parentPhone: row.parentPhone,
+      createdAt: row.createdAt.toISOString(),
+    });
+  } catch {
+    res.status(404).json({ error: "User not found" });
+  }
+});
+
+api.delete("/users/:id", async (req, res) => {
+  try {
+    await prisma.user.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "User not found" });
   }
 });

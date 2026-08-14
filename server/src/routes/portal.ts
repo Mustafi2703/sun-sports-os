@@ -198,7 +198,8 @@ portalRouter.put("/coach/students/:id/scores", requireAuth("coach"), async (req,
   const myBatchIds = (
     await prisma.batch.findMany({ where: { coachId }, select: { id: true } })
   ).map((b) => b.id);
-  const student = await prisma.student.findUnique({ where: { id: req.params.id } });
+  const studentId = String(req.params.id);
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
   if (!student || !student.batchId || !myBatchIds.includes(student.batchId)) {
     return res.status(403).json({ error: "Student not in your batches" });
   }

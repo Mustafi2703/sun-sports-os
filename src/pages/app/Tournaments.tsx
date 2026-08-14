@@ -29,6 +29,7 @@ const Tournaments = () => {
   const [list, setList] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<Tournament | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [statsMatchId, setStatsMatchId] = useState<{ tId: string; mId: string } | null>(null);
   const [shareId, setShareId] = useState<string | null>(null);
@@ -111,20 +112,28 @@ const Tournaments = () => {
             <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="active" className="mt-5">
-            <TournamentGrid items={active} onView={setDetailsId} onShare={setShareId} />
+            <TournamentGrid items={active} onView={setDetailsId} onShare={setShareId} onEdit={setEditing} />
           </TabsContent>
           <TabsContent value="past" className="mt-5">
-            <TournamentGrid items={past} onView={setDetailsId} onShare={setShareId} />
+            <TournamentGrid items={past} onView={setDetailsId} onShare={setShareId} onEdit={setEditing} />
           </TabsContent>
         </Tabs>
       )}
 
       <CreateTournamentDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
+        open={createOpen || !!editing}
+        initial={editing}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCreateOpen(false);
+            setEditing(null);
+          }
+        }}
         onSave={async (t) => {
-          await upsertTournament(t, true);
+          const isNew = !editing;
+          await upsertTournament(isNew ? t : { ...t, id: editing!.id, matches: t.matches.length ? t.matches : editing!.matches }, isNew);
           setCreateOpen(false);
+          setEditing(null);
         }}
       />
 
@@ -150,8 +159,8 @@ const Tournaments = () => {
 };
 
 
-const TournamentGrid = ({ items, onView, onShare }: {
-  items: Tournament[]; onView: (id: string) => void; onShare: (id: string) => void;
+const TournamentGrid = ({ items, onView, onShare, onEdit }: {
+  items: Tournament[]; onView: (id: string) => void; onShare: (id: string) => void; onEdit: (t: Tournament) => void;
 }) => {
   if (items.length === 0) {
     return (
@@ -163,12 +172,22 @@ const TournamentGrid = ({ items, onView, onShare }: {
   }
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {items.map(t => <TournamentCard key={t.id} t={t} onView={() => onView(t.id)} onShare={() => onShare(t.id)} />)}
+      {items.map(t => (
+        <TournamentCard
+          key={t.id}
+          t={t}
+          onView={() => onView(t.id)}
+          onShare={() => onShare(t.id)}
+          onEdit={() => onEdit(t)}
+        />
+      ))}
     </div>
   );
 };
 
-const TournamentCard = ({ t, onView, onShare }: { t: Tournament; onView: () => void; onShare: () => void; }) => {
+const TournamentCard = ({ t, onView, onShare, onEdit }: {
+  t: Tournament; onView: () => void; onShare: () => void; onEdit: () => void;
+}) => {
   const completedMatches = t.matches.filter(m => m.completed).length;
   return (
     <Card className="p-5 hover:border-primary/40 transition-colors">
@@ -195,7 +214,7 @@ const TournamentCard = ({ t, onView, onShare }: { t: Tournament; onView: () => v
         <Button type="button" size="sm" variant="outline" className="flex-1" onClick={onView}>
           <Eye className="h-3.5 w-3.5" /> View
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => toast.info("Edit coming soon")}>
+        <Button type="button" size="sm" variant="outline" onClick={onEdit}>
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={onShare}>
@@ -206,9 +225,12 @@ const TournamentCard = ({ t, onView, onShare }: { t: Tournament; onView: () => v
   );
 };
 
-// ---------------- Create Tournament ----------------
-const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
-  open: boolean; onOpenChange: (o: boolean) => void; onSave: (t: Tournament) => void | Promise<void>;
+// ---------------- Create / Edit Tournament ----------------
+const CreateTournamentDialog = ({ open, onOpenChange, onSave, initial }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSave: (t: Tournament) => void | Promise<void>;
+  initial?: Tournament | null;
 }) => {
   const { students } = useAcademy();
   const [name, setName] = useState("");
@@ -225,18 +247,48 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
     setOpponentsText(""); setSelectedIds([]); setMatchRows([{ date: "", time: "", opponent: "" }]);
   };
 
+  useEffect(() => {
+    if (!open) return;
+    if (initial) {
+      setName(initial.name);
+      setStartDate(initial.startDate?.slice(0, 10) || "");
+      setEndDate(initial.endDate?.slice(0, 10) || "");
+      setFormat(initial.format || "T20");
+      setVenue(initial.venue || "");
+      setOpponentsText((initial.opponents || []).join(", "));
+      setSelectedIds(initial.studentIds || []);
+      setMatchRows(
+        initial.matches?.length
+          ? initial.matches.map((m) => ({ date: m.date?.slice(0, 10) || "", time: m.time || "", opponent: m.opponent || "" }))
+          : [{ date: "", time: "", opponent: "" }]
+      );
+    } else {
+      reset();
+    }
+  }, [open, initial]);
+
   const submit = async () => {
     if (!name || !startDate || !endDate) { toast.error("Name and date range required"); return; }
     const opponents = opponentsText.split(",").map(o => o.trim()).filter(Boolean);
-    const matches: Match[] = matchRows.filter(r => r.date && r.opponent).map((r, i) => ({
-      id: `m_${Date.now()}_${i}`, number: i + 1, date: r.date, time: r.time || "9:00 AM",
-      opponent: r.opponent, venue, completed: false,
-    }));
+    const matches: Match[] = matchRows.filter(r => r.date && r.opponent).map((r, i) => {
+      const existing = initial?.matches?.[i];
+      return {
+        id: existing?.id || `m_${Date.now()}_${i}`,
+        number: i + 1,
+        date: r.date,
+        time: r.time || "9:00 AM",
+        opponent: r.opponent,
+        venue,
+        completed: existing?.completed || false,
+        stats: existing?.stats,
+        result: existing?.result,
+      };
+    });
     const today = new Date().toISOString().slice(0, 10);
     const status: Tournament["status"] = endDate < today ? "completed" : startDate > today ? "upcoming" : "ongoing";
     try {
       await onSave({
-        id: `t_${Date.now()}`, name, startDate, endDate, format, venue,
+        id: initial?.id || `t_${Date.now()}`, name, startDate, endDate, format, venue,
         studentIds: selectedIds, opponents, status, matches,
       });
       reset();
@@ -248,7 +300,9 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle className="font-display">Create New Tournament</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="font-display">{initial ? "Edit Tournament" : "Create New Tournament"}</DialogTitle>
+        </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
             <Label>Tournament Name</Label>
@@ -290,7 +344,7 @@ const CreateTournamentDialog = ({ open, onOpenChange, onSave }: {
             <Label>Participating Students ({selectedIds.length} selected)</Label>
             <ScrollArea className="h-40 rounded-md border border-border p-2 mt-1">
               <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                {students.slice(0, 40).map(s => (
+                {students.map(s => (
                   <label key={s.id} className="flex items-center gap-2 text-sm py-2 px-2 rounded hover:bg-muted/30 cursor-pointer min-h-[44px]">
                     <Checkbox
                       checked={selectedIds.includes(s.id)}
@@ -648,7 +702,24 @@ const ShareDialog = ({ tournament, onOpenChange }: { tournament: Tournament | nu
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={() => { toast.success("Shared via WhatsApp"); onOpenChange(false); }} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button
+            onClick={() => {
+              const top = lb.map((r, i) => `${i + 1}. ${r.name} — ${r.runs} runs`).join("\n");
+              const text = [
+                `*${tournament.name}* — Sun Sports`,
+                `${fmtRange(tournament.startDate, tournament.endDate)} · ${tournament.format}`,
+                tournament.venue ? `Venue: ${tournament.venue}` : "",
+                `Record: ${wins}W / ${completed} played · ${tournament.studentIds.length} players`,
+                top ? `\nTop performers:\n${top}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n");
+              window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+              toast.success("Opening WhatsApp share");
+              onOpenChange(false);
+            }}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
             <Share2 className="h-4 w-4" /> Share via WhatsApp
           </Button>
         </DialogFooter>

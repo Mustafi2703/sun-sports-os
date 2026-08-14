@@ -142,6 +142,20 @@ model User {
   @@index([phone])
 }
 
+/// Short-lived phone OTP challenges for portal login
+model OtpChallenge {
+  id        String   @id @default(cuid())
+  phone     String
+  portal    String   /// parent | coach | admin
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([phone, portal])
+  @@index([expiresAt])
+}
+
 /// Tournaments — matches + stats stored as JSON for flexibility
 model Tournament {
   id          String   @id @default(cuid())

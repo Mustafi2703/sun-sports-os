@@ -176,6 +176,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  authMethods: () =>
+    request<{ otp: boolean; pin: boolean; smsConfigured: boolean; smsProvider: string }>("/api/auth/methods"),
+  requestOtp: (body: { phone: string; portal: Portal }) =>
+    request<{
+      ok: boolean;
+      expiresInSeconds: number;
+      smsDelivered: boolean;
+      smsProvider: string;
+      message?: string;
+      devOtp?: string;
+    }>("/api/auth/request-otp", { method: "POST", body: JSON.stringify(body) }),
+  verifyOtp: (body: { phone: string; portal: Portal; otp: string }) =>
+    request<{ token: string; user: AuthUser }>("/api/auth/verify-otp", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listUsers: () =>
+    request<
+      { id: string; phone: string; role: string; name: string; coachId?: string | null; parentPhone?: string | null; createdAt: string }[]
+    >("/api/users"),
+  createUser: (body: { phone: string; role: Portal; name: string; pin?: string; coachId?: string }) =>
+    request("/api/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (id: string, body: { name?: string; pin?: string; coachId?: string | null; parentPhone?: string | null }) =>
+    request(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
   demoAccounts: () =>
     request<{
       pin: string;

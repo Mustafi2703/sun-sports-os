@@ -1,7 +1,7 @@
 import { prisma } from "./prisma.js";
 import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
 
-/** Create/update a single parent portal user for a phone */
+/** Create/update a single parent portal user for a phone (PIN set only on create) */
 export async function ensureParentUser(parentPhone: string | null | undefined, parentName?: string | null) {
   const phone = normalizePhone(parentPhone);
   if (!phone || phone.length < 10) return null;
@@ -18,12 +18,11 @@ export async function ensureParentUser(parentPhone: string | null | undefined, p
     update: {
       name: parentName || "Parent",
       parentPhone: phone,
-      pinHash,
     },
   });
 }
 
-/** Create/update a single coach portal user */
+/** Create/update a single coach portal user (PIN set only on create) */
 export async function ensureCoachUser(opts: {
   coachId: string;
   name: string;
@@ -44,7 +43,6 @@ export async function ensureCoachUser(opts: {
     update: {
       name: opts.name,
       coachId: opts.coachId,
-      pinHash,
     },
   });
 }

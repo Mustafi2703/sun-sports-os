@@ -98,10 +98,19 @@ export function StudentFormDialog({
             </Field>
           </div>
           <Field label="Parent / guardian">
-            <Input value={form.parentName} onChange={(e) => set("parentName", e.target.value)} />
+            <Input value={form.parentName} onChange={(e) => set("parentName", e.target.value)} placeholder="Parent name" />
           </Field>
-          <Field label="Parent WhatsApp">
-            <Input value={form.parentPhone} onChange={(e) => set("parentPhone", e.target.value)} />
+          <Field label="Parent WhatsApp (required for portal login)">
+            <Input
+              value={form.parentPhone}
+              onChange={(e) => set("parentPhone", e.target.value)}
+              inputMode="tel"
+              placeholder="10-digit mobile"
+              required
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Creates/updates the parent portal account for this number.
+            </p>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Batch">
@@ -159,7 +168,7 @@ export function StudentFormDialog({
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button
             className="bg-primary text-primary-foreground"
-            disabled={busy || !form.name.trim()}
+            disabled={busy || !form.name.trim() || form.parentPhone.replace(/\D/g, "").length < 10}
             onClick={() => void onSubmit(form)}
           >
             {busy ? "Saving…" : student ? "Save changes" : "Add student"}

@@ -33,6 +33,7 @@ interface AuthContextValue {
   loading: boolean;
   activeRole: UserRole | null;
   login: (portal: Portal, phone: string, pin: string) => Promise<void>;
+  loginWithOtp: (portal: Portal, phone: string, otp: string) => Promise<void>;
   logout: () => void;
   loginPath: (role?: UserRole) => string;
   isRole: (role: UserRole) => boolean;
@@ -151,6 +152,15 @@ function AuthSession({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
+  const loginWithOtp = useCallback(async (portal: Portal, phone: string, otp: string) => {
+    const res = await api.verifyOtp({ phone, portal, otp });
+    genRef.current += 1;
+    writeStored(portal, res.token, res.user);
+    setAuthToken(res.token);
+    setAuth({ token: res.token, user: res.user });
+    setLoading(false);
+  }, []);
+
   const logout = useCallback(() => {
     genRef.current += 1;
     if (activeRole) clearStored(activeRole);
@@ -166,11 +176,12 @@ function AuthSession({ children }: { children: ReactNode }) {
       loading,
       activeRole,
       login,
+      loginWithOtp,
       logout,
       loginPath: (role) => LOGIN_PATH[role ?? activeRole ?? "admin"],
       isRole: (role) => user?.role === role,
     }),
-    [token, user, loading, activeRole, login, logout]
+    [token, user, loading, activeRole, login, loginWithOtp, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

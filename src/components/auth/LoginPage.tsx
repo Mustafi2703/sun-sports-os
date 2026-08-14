@@ -111,34 +111,72 @@ function normalizePhoneInput(raw: string): string {
 }
 
 export function LoginPage({ portal }: { portal: Portal }) {
-  const { login, user, loading } = useAuth();
+  const { login, loginWithOtp, user, loading } = useAuth();
   const navigate = useNavigate();
   const theme = THEMES[portal];
   const [phone, setPhone] = useState("");
-  const [pin, setPin] = useState("1234");
+  const [otp, setOtp] = useState("");
+  const [pin, setPin] = useState("");
+  const [mode, setMode] = useState<"otp" | "pin">("otp");
+  const [otpSent, setOtpSent] = useState(false);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [smsConfigured, setSmsConfigured] = useState(false);
+  const [pinAllowed, setPinAllowed] = useState(true);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [demos, setDemos] = useState<{ phone: string; name: string }[]>([]);
   const [demoPin, setDemoPin] = useState("1234");
 
   useEffect(() => {
     void api
+      .authMethods()
+      .then((m) => {
+        setSmsConfigured(m.smsConfigured);
+        setPinAllowed(m.pin);
+        if (!m.otp && m.pin) setMode("pin");
+      })
+      .catch(() => undefined);
+
+    void api
       .demoAccounts()
       .then((d) => {
         setDemoPin(d.pin || "1234");
-        setPin(d.pin || "1234");
         if (portal === "admin") setDemos(d.admin ? [d.admin] : []);
         else if (portal === "coach") setDemos(d.coaches || []);
         else setDemos((d.parents || []).slice(0, 8));
       })
-      .catch(() => {
-        /* offline — form still works */
-      });
+      .catch(() => undefined);
   }, [portal]);
 
   if (!loading && user?.role === portal) {
     return <Navigate to={theme.home} replace />;
   }
+
+  const sendOtp = async () => {
+    setError("");
+    setInfo("");
+    setDevOtp(null);
+    const normalized = normalizePhoneInput(phone);
+    if (normalized.length < 10) {
+      setError("Enter a valid 10-digit mobile number");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.requestOtp({ phone: normalized, portal });
+      setOtpSent(true);
+      setInfo(res.message || "OTP sent");
+      if (res.devOtp) {
+        setDevOtp(res.devOtp);
+        setOtp(res.devOtp);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send OTP");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -148,13 +186,27 @@ export function LoginPage({ portal }: { portal: Portal }) {
       setError("Enter a valid 10-digit mobile number");
       return;
     }
-    if (!pin.trim()) {
-      setError("PIN required");
-      return;
-    }
     setSubmitting(true);
     try {
-      await login(portal, normalized, pin.trim());
+      if (mode === "otp") {
+        if (!otpSent) {
+          await sendOtp();
+          return;
+        }
+        if (!otp.trim()) {
+          setError("Enter the OTP from SMS");
+          setSubmitting(false);
+          return;
+        }
+        await loginWithOtp(portal, normalized, otp.trim());
+      } else {
+        if (!pin.trim()) {
+          setError("PIN required");
+          setSubmitting(false);
+          return;
+        }
+        await login(portal, normalized, pin.trim());
+      }
       navigate(theme.home, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -169,7 +221,6 @@ export function LoginPage({ portal }: { portal: Portal }) {
       <div className="absolute inset-0 gradient-hero opacity-70 pointer-events-none" aria-hidden />
 
       <div className="relative mx-auto flex min-h-[100dvh] max-w-6xl flex-col lg:flex-row lg:items-stretch">
-        {/* Module panel */}
         <section className="flex flex-1 flex-col justify-center px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
           <Link to="/" className="mb-8 w-fit">
             <Logo />
@@ -196,10 +247,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
             )}
           >
             {theme.modules.map(({ icon: Icon, title, desc }) => (
-              <div
-                key={title}
-                className="surface-soft rounded-xl px-3.5 py-3 flex items-start gap-3"
-              >
+              <div key={title} className="surface-soft rounded-xl px-3.5 py-3 flex items-start gap-3">
                 <div className="mt-0.5 h-9 w-9 shrink-0 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
                   <Icon className="h-4 w-4" />
                 </div>
@@ -212,7 +260,6 @@ export function LoginPage({ portal }: { portal: Portal }) {
           </div>
         </section>
 
-        {/* Sign-in panel */}
         <section className="flex flex-1 items-center justify-center px-4 pb-10 pt-2 sm:px-8 lg:px-10 lg:py-16 safe-pb">
           <div className="w-full max-w-md surface-elevated rounded-2xl sm:rounded-3xl p-6 sm:p-8 space-y-5">
             <div className="space-y-1">
@@ -220,7 +267,38 @@ export function LoginPage({ portal }: { portal: Portal }) {
               <p className="text-sm text-muted-foreground">{theme.hint}</p>
             </div>
 
-            <form onSubmit={onSubmit} className="space-y-4">
+            {pinAllowed && (
+              <div className="flex gap-1 p-1 rounded-xl bg-muted/40 border border-border/60">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 text-xs py-2 rounded-lg transition-colors",
+                    mode === "otp" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    setMode("otp");
+                    setError("");
+                  }}
+                >
+                  Phone OTP
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 text-xs py-2 rounded-lg transition-colors",
+                    mode === "pin" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    setMode("pin");
+                    setError("");
+                  }}
+                >
+                  PIN
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
               <div>
                 <label className="text-xs text-muted-foreground mb-1.5 block">Phone</label>
                 <Input
@@ -229,37 +307,101 @@ export function LoginPage({ portal }: { portal: Portal }) {
                   autoComplete="tel"
                   placeholder="10-digit mobile"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    setOtpSent(false);
+                    setDevOtp(null);
+                  }}
                   required
                 />
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">PIN</label>
-                <Input
-                  className="h-11 bg-background/50 border-border/80"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="current-password"
-                  placeholder="4-digit PIN"
-                  maxLength={8}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  required
-                />
-              </div>
+
+              {mode === "otp" ? (
+                <>
+                  {otpSent && (
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1.5 block">OTP</label>
+                      <Input
+                        className="h-11 bg-background/50 border-border/80 tracking-[0.3em] text-center text-lg"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="6-digit code"
+                        maxLength={8}
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                        required
+                      />
+                    </div>
+                  )}
+                  {devOtp && (
+                    <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
+                      SMS not configured yet — use code <span className="font-mono font-semibold">{devOtp}</span>
+                    </p>
+                  )}
+                  {info && !devOtp && <p className="text-xs text-muted-foreground">{info}</p>}
+                  {!smsConfigured && !devOtp && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Live SMS uses MSG91 or Twilio on the API. Until then, OTP appears on-screen after Send.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">PIN</label>
+                  <Input
+                    className="h-11 bg-background/50 border-border/80"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    placeholder="4-digit PIN"
+                    maxLength={8}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    required
+                  />
+                </div>
+              )}
+
               {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button
-                type="submit"
-                className="w-full h-11 bg-primary text-primary-foreground shadow-glow"
-                disabled={submitting}
-              >
-                {submitting ? "Signing in…" : theme.cta}
-              </Button>
+
+              <div className="flex flex-col gap-2">
+                {mode === "otp" && !otpSent ? (
+                  <Button
+                    type="button"
+                    className="w-full h-11 bg-primary text-primary-foreground shadow-glow"
+                    disabled={submitting}
+                    onClick={() => void sendOtp()}
+                  >
+                    {submitting ? "Sending…" : "Send OTP"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    className="w-full h-11 bg-primary text-primary-foreground shadow-glow"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Signing in…" : theme.cta}
+                  </Button>
+                )}
+                {mode === "otp" && otpSent && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full h-9 text-xs"
+                    disabled={submitting}
+                    onClick={() => void sendOtp()}
+                  >
+                    Resend OTP
+                  </Button>
+                )}
+              </div>
             </form>
 
-            <p className="text-xs text-muted-foreground text-center">
-              Demo PIN: <span className="text-foreground font-medium">{demoPin}</span>
-            </p>
+            {mode === "pin" && (
+              <p className="text-xs text-muted-foreground text-center">
+                Backup PIN: <span className="text-foreground font-medium">{demoPin}</span>
+              </p>
+            )}
 
             {demos.length > 0 && (
               <div className="surface-soft rounded-xl p-3 space-y-2">
@@ -273,6 +415,8 @@ export function LoginPage({ portal }: { portal: Portal }) {
                       onClick={() => {
                         setPhone(d.phone);
                         setPin(demoPin);
+                        setOtpSent(false);
+                        setDevOtp(null);
                         setError("");
                       }}
                     >

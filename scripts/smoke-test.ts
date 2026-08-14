@@ -51,6 +51,25 @@ async function run() {
     assert("POST /api/auth/login admin", r.ok && !!adminToken, String(r.status));
   }
 
+  // OTP login (dev echo when SMS not configured)
+  {
+    const methods = await req("/api/auth/methods");
+    assert("GET /api/auth/methods", methods.ok && (methods.json as { otp?: boolean })?.otp === true);
+    const otpReq = await req("/api/auth/request-otp", {
+      method: "POST",
+      body: JSON.stringify({ phone: ADMIN_PHONE, portal: "admin" }),
+    });
+    const devOtp = (otpReq.json as { devOtp?: string })?.devOtp || "";
+    assert("POST /api/auth/request-otp admin", otpReq.ok && !!devOtp, devOtp ? "devOtp" : String(otpReq.status));
+    if (devOtp) {
+      const verified = await req("/api/auth/verify-otp", {
+        method: "POST",
+        body: JSON.stringify({ phone: ADMIN_PHONE, portal: "admin", otp: devOtp }),
+      });
+      assert("POST /api/auth/verify-otp admin", verified.ok && !!(verified.json as { token?: string })?.token);
+    }
+  }
+
   // Snapshot requires admin
   {
     const denied = await req("/api/snapshot");
@@ -272,6 +291,18 @@ async function run() {
     const r = await req("/api/tournaments", { token: adminToken });
     const list = (r.json as { id: string }[]) || [];
     assert("GET /api/tournaments", r.ok && list.some((t) => t.id === tournamentId), String(list.length));
+  }
+  {
+    const r = await req(`/api/tournaments/${tournamentId}`, {
+      method: "PUT",
+      token: adminToken,
+      body: JSON.stringify({ name: "Smoke Cup Updated", venue: "Ground 2" }),
+    });
+    assert("PUT /api/tournaments/:id", r.ok && (r.json as { name?: string })?.name === "Smoke Cup Updated");
+  }
+  {
+    const r = await req("/api/users", { token: adminToken });
+    assert("GET /api/users", r.ok && Array.isArray(r.json), `count=${Array.isArray(r.json) ? (r.json as unknown[]).length : 0}`);
   }
   {
     const r = await req(`/api/tournaments/${tournamentId}`, { method: "DELETE", token: adminToken });

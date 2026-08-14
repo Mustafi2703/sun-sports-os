@@ -4,7 +4,7 @@ import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
 /**
  * Ensures portal users exist for admin, every coach with a phone,
  * and every distinct parent phone on students. Idempotent.
- * Always refreshes PIN hash to DEFAULT_PIN so demo logins stay reliable.
+ * Does NOT reset existing PIN hashes (preserves custom PINs).
  */
 export async function bootstrapPortalUsers() {
   const pin = getDefaultPin();
@@ -43,7 +43,7 @@ export async function bootstrapPortalUsers() {
       role: "admin",
       name: "Sun Sports Team",
     },
-    update: { name: "Sun Sports Team", pinHash },
+    update: { name: "Sun Sports Team" },
   });
 
   for (const c of await prisma.coach.findMany()) {
@@ -61,7 +61,6 @@ export async function bootstrapPortalUsers() {
       update: {
         name: c.name,
         coachId: c.id,
-        pinHash,
       },
     });
   }
@@ -93,7 +92,6 @@ export async function bootstrapPortalUsers() {
       update: {
         name,
         parentPhone: phone,
-        pinHash,
       },
     });
   }
@@ -102,6 +100,6 @@ export async function bootstrapPortalUsers() {
   console.log(
     "Portal users ready:",
     counts.map((c) => `${c.role}=${c._count}`).join(", "),
-    `(default PIN ${pin})`
+    `(default PIN ${pin} for new accounts only)`
   );
 }

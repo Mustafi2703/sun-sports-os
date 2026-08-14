@@ -8,11 +8,136 @@ import {
   verifyPin,
   type AuthUser,
 } from "../lib/auth.js";
+import { authMethods, createAndSendOtp, pinAuthAllowed, purgeExpiredOtps, verifyOtpCode } from "../lib/otp.js";
 
 export const authRouter = Router();
 
+function toAuthUser(user: {
+  id: string;
+  phone: string;
+  role: string;
+  name: string;
+  coachId: string | null;
+  parentPhone: string | null;
+}): AuthUser {
+  return {
+    id: user.id,
+    phone: user.phone,
+    role: user.role as AuthUser["role"],
+    name: user.name,
+    coachId: user.coachId,
+    parentPhone: user.parentPhone,
+  };
+}
+
+function loginResponse(user: AuthUser) {
+  return {
+    token: signToken(user),
+    user: {
+      id: user.id,
+      phone: user.phone,
+      role: user.role,
+      name: user.name,
+      coachId: user.coachId,
+      parentPhone: user.parentPhone,
+    },
+  };
+}
+
+async function findPortalUser(phone: string, portal: AuthUser["role"]) {
+  const user = await prisma.user.findUnique({
+    where: { phone_role: { phone, role: portal } },
+  });
+  if (user) return { user, wrongPortal: null as string | null };
+  const other = await prisma.user.findFirst({ where: { phone } });
+  if (other) {
+    const where = other.role === "admin" ? "/app/login" : `/${other.role}/login`;
+    return {
+      user: null,
+      wrongPortal: `This phone is registered for the ${other.role} portal. Use ${where}`,
+    };
+  }
+  return { user: null, wrongPortal: null };
+}
+
+authRouter.get("/methods", (_req, res) => {
+  res.json(authMethods());
+});
+
+/** Request a 6-digit OTP SMS for a registered portal phone */
+authRouter.post("/request-otp", async (req, res) => {
+  try {
+    await purgeExpiredOtps().catch(() => undefined);
+    const phone = normalizePhone(req.body.phone);
+    const portal = portalToRole(String(req.body.portal || ""));
+
+    if (!phone || phone.length < 10) {
+      return res.status(400).json({ error: "Valid 10-digit phone required" });
+    }
+    if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
+
+    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
+    if (!user) {
+      return res.status(404).json({
+        error:
+          portal === "parent"
+            ? "No parent account for this phone. Ask the academy to add your WhatsApp on the student profile."
+            : portal === "coach"
+              ? "No coach account for this phone. Ask the academy to add your coach phone in Settings."
+              : "No team account for this phone.",
+      });
+    }
+
+    const result = await createAndSendOtp(phone, portal);
+    res.json({
+      ...result,
+      message: result.smsDelivered
+        ? "OTP sent to your phone"
+        : result.devOtp
+          ? "OTP generated (SMS not configured — use the on-screen code)"
+          : "OTP generated but SMS delivery failed — check SMS provider settings",
+    });
+  } catch (e) {
+    console.error("request-otp error:", e);
+    res.status(500).json({ error: "Could not send OTP — try again" });
+  }
+});
+
+/** Verify OTP and issue JWT */
+authRouter.post("/verify-otp", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const otp = String(req.body.otp || req.body.code || "").trim();
+    const portal = portalToRole(String(req.body.portal || ""));
+
+    if (!phone || phone.length < 10) {
+      return res.status(400).json({ error: "Valid 10-digit phone required" });
+    }
+    if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
+    if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the OTP from SMS" });
+
+    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
+    if (!user) return res.status(401).json({ error: "Invalid phone or OTP" });
+
+    const check = await verifyOtpCode(phone, portal, otp);
+    if (!check.ok) return res.status(401).json({ error: check.error });
+
+    res.json(loginResponse(toAuthUser(user)));
+  } catch (e) {
+    console.error("verify-otp error:", e);
+    res.status(500).json({ error: "OTP verification failed — try again" });
+  }
+});
+
+/** Legacy / backup PIN login (enabled unless AUTH_ALLOW_PIN=false) */
 authRouter.post("/login", async (req, res) => {
   try {
+    if (!pinAuthAllowed()) {
+      return res.status(403).json({ error: "PIN login disabled — use OTP" });
+    }
+
     const phone = normalizePhone(req.body.phone);
     const pin = String(req.body.pin || "").trim();
     const portal = portalToRole(String(req.body.portal || ""));
@@ -21,44 +146,14 @@ authRouter.post("/login", async (req, res) => {
     if (!pin) return res.status(400).json({ error: "PIN required" });
     if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
 
-    const user = await prisma.user.findUnique({
-      where: { phone_role: { phone, role: portal } },
-    });
-    if (!user) {
-      const other = await prisma.user.findFirst({ where: { phone } });
-      if (other) {
-        const where =
-          other.role === "admin" ? "/app/login" : `/${other.role}/login`;
-        return res.status(403).json({
-          error: `This phone is registered for the ${other.role} portal. Use ${where}`,
-        });
-      }
-      return res.status(401).json({ error: "Invalid phone or PIN" });
-    }
+    const { user, wrongPortal } = await findPortalUser(phone, portal);
+    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
+    if (!user) return res.status(401).json({ error: "Invalid phone or PIN" });
 
     const ok = await verifyPin(pin, user.pinHash);
     if (!ok) return res.status(401).json({ error: "Invalid phone or PIN" });
 
-    const authUser: AuthUser = {
-      id: user.id,
-      phone: user.phone,
-      role: user.role as AuthUser["role"],
-      name: user.name,
-      coachId: user.coachId,
-      parentPhone: user.parentPhone,
-    };
-
-    res.json({
-      token: signToken(authUser),
-      user: {
-        id: authUser.id,
-        phone: authUser.phone,
-        role: authUser.role,
-        name: authUser.name,
-        coachId: authUser.coachId,
-        parentPhone: authUser.parentPhone,
-      },
-    });
+    res.json(loginResponse(toAuthUser(user)));
   } catch (e) {
     console.error("Login error:", e);
     res.status(500).json({ error: "Login failed — try again" });
