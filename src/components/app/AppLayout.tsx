@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Home, Users, Layers, CreditCard, CalendarCheck, TrendingUp,
-  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut
+  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut, ClipboardList
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/app", label: "Dashboard", icon: Home, end: true },
   { to: "/app/students", label: "Students", icon: Users },
   { to: "/app/batches", label: "Batches", icon: Layers },
+  { to: "/app/coaches", label: "Coaches", icon: ClipboardList },
   { to: "/app/fees", label: "Fee Management", icon: CreditCard },
   { to: "/app/attendance", label: "Attendance", icon: CalendarCheck },
   { to: "/app/performance", label: "Performance", icon: TrendingUp },

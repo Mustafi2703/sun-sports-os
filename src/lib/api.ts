@@ -19,6 +19,10 @@ export interface Coach {
   phone: string;
   specialty: string;
   email?: string;
+  salaryMonthly?: number;
+  status?: string;
+  joinDate?: string;
+  notes?: string;
 }
 
 export interface Batch {
@@ -94,6 +98,15 @@ export interface ParentChild extends Student {
   coach: Coach | null;
   attendanceGrid: AttendanceGridDay[];
   payments: FeePayment[];
+  feeSchedule?: {
+    id: string;
+    monthLabel: string;
+    amount: number;
+    status: string;
+    daysOverdue: number;
+    dueDate: string;
+    paidAt: string | null;
+  }[];
   notes?: { id: string; note: string; author?: string | null; createdAt: string }[];
 }
 
@@ -269,6 +282,65 @@ export const api = {
     id: string,
     body: { feeAmount?: number; feeStatus?: FeeStatus; daysOverdue?: number }
   ) => request<Student>(`/api/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  listFeePackages: () =>
+    request<
+      { id: string; name: string; description: string; months: number; monthlyAmount: number; totalAmount: number; active: boolean }[]
+    >("/api/fee-packages"),
+  createFeePackage: (body: {
+    name: string;
+    description?: string;
+    months: number;
+    monthlyAmount: number;
+    totalAmount?: number;
+  }) => request("/api/fee-packages", { method: "POST", body: JSON.stringify(body) }),
+  updateFeePackage: (id: string, body: Record<string, unknown>) =>
+    request(`/api/fee-packages/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  enrollFeePackage: (body: {
+    studentId: string;
+    packageId?: string;
+    packageName?: string;
+    months?: number;
+    monthlyAmount?: number;
+    startMonth?: string;
+  }) => request("/api/fee-enrollments", { method: "POST", body: JSON.stringify(body) }),
+  listFeeEnrollments: (q?: { studentId?: string; status?: string }) => {
+    const qs = q ? "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString() : "";
+    return request<Record<string, unknown>[]>(`/api/fee-enrollments${qs}`);
+  },
+  listFeeInstallments: (q?: { studentId?: string; month?: string; status?: string }) => {
+    const qs = q ? "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString() : "";
+    return request<
+      {
+        id: string;
+        studentId: string;
+        studentName: string;
+        monthLabel: string;
+        amount: number;
+        status: string;
+        daysOverdue: number;
+        packageName: string;
+        parentPhone?: string;
+      }[]
+    >(`/api/fee-installments${qs}`);
+  },
+  updateFeeInstallment: (
+    id: string,
+    body: { status?: string; markPaid?: boolean; method?: string; amount?: number; daysOverdue?: number; note?: string }
+  ) => request(`/api/fee-installments/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  feeMetrics: () =>
+    request<{
+      thisMonth: string;
+      collectedThisMonth: number;
+      expectedThisMonth: number;
+      collectionRate: number;
+      paidInstallments: number;
+      overdueInstallments: number;
+      pendingInstallments: number;
+      activePackages: number;
+      packageBookValue: number;
+      totalCollected: number;
+      coachSalaryBill: number;
+    }>("/api/fee-metrics"),
   deletePayment: (id: string) =>
     request<{ ok: boolean }>(`/api/payments/${id}`, { method: "DELETE" }),
   listAttendance: (q: { date?: string; batchId?: string; studentId?: string }) => {

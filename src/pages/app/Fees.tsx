@@ -1,101 +1,121 @@
-import { useEffect, useMemo, useState } from "react";
-import { CreditCard, AlertTriangle, Calendar, Send, MessageCircle, Pencil, Banknote, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CreditCard, AlertTriangle, Calendar, Package, CheckCircle2, Clock, Search, Plus, Banknote,
+} from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { FeeStatus, Student } from "@/lib/api";
+import type { Student } from "@/lib/api";
 
-const FEE_BADGES: Record<string, string> = {
+type FeePackage = {
+  id: string;
+  name: string;
+  description: string;
+  months: number;
+  monthlyAmount: number;
+  totalAmount: number;
+  active: boolean;
+};
+
+type InstallmentRow = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  monthLabel: string;
+  amount: number;
+  status: string;
+  daysOverdue: number;
+  packageName: string;
+  parentPhone?: string;
+};
+
+type Metrics = {
+  thisMonth: string;
+  collectedThisMonth: number;
+  expectedThisMonth: number;
+  collectionRate: number;
+  paidInstallments: number;
+  overdueInstallments: number;
+  pendingInstallments: number;
+  activePackages: number;
+  packageBookValue: number;
+  totalCollected: number;
+  coachSalaryBill: number;
+};
+
+const STATUS_BADGE: Record<string, string> = {
   paid: "bg-primary/15 text-primary border-primary/30",
-  overdue1: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  overdue8: "bg-destructive/15 text-destructive border-destructive/30",
-};
-const FEE_LABEL: Record<string, string> = {
-  paid: "Paid",
-  overdue1: "Overdue 1–7d",
-  overdue8: "Overdue 8+d",
+  pending: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  overdue: "bg-destructive/15 text-destructive border-destructive/30",
 };
 
-function currentFeeMonth() {
+function currentMonth() {
   return new Date().toLocaleString("en-IN", { month: "short", year: "numeric" });
 }
 
 function monthOptions() {
   const out: string[] = [];
   const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  for (let i = -1; i < 14; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     out.push(d.toLocaleString("en-IN", { month: "short", year: "numeric" }));
   }
   return out;
 }
 
 const Fees = () => {
-  const { students, batches, getBatch, monthlyRevenue, overdueAmount, inr, api, refresh } = useAcademy();
-  const [tab, setTab] = useState("all");
-  const [batchFilter, setBatchFilter] = useState("all");
+  const { students, api, inr, refresh } = useAcademy();
+  const [tab, setTab] = useState("dues");
+  const [packages, setPackages] = useState<FeePackage[]>([]);
+  const [installments, setInstallments] = useState<InstallmentRow[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [month, setMonth] = useState(currentMonth());
+  const [statusFilter, setStatusFilter] = useState("all");
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [previewIds, setPreviewIds] = useState<string[] | null>(null);
-  const [editStudent, setEditStudent] = useState<Student | null>(null);
-  const [payStudent, setPayStudent] = useState<Student | null>(null);
   const [busy, setBusy] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [pkgOpen, setPkgOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    const [pkgs, inst, met] = await Promise.all([
+      api.listFeePackages(),
+      api.listFeeInstallments({ month }),
+      api.feeMetrics(),
+    ]);
+    setPackages(pkgs.filter((p) => p.active));
+    setInstallments(inst);
+    setMetrics(met);
+  }, [api, month]);
+
+  useEffect(() => {
+    void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load fees"));
+  }, [load]);
 
   const filtered = useMemo(() => {
-    return students.filter((s) => {
-      if (tab !== "all" && s.feeStatus !== tab) return false;
-      if (batchFilter !== "all" && s.batchId !== batchFilter) return false;
-      if (q && !s.name.toLowerCase().includes(q.toLowerCase()) && !s.parentPhone.includes(q)) return false;
+    return installments.filter((i) => {
+      if (statusFilter !== "all" && i.status !== statusFilter) return false;
+      if (q && !i.studentName.toLowerCase().includes(q.toLowerCase()) && !(i.parentPhone || "").includes(q)) {
+        return false;
+      }
       return true;
     });
-  }, [tab, batchFilter, q, students]);
+  }, [installments, statusFilter, q]);
 
-  const expectedBook = students.reduce((a, s) => a + s.feeAmount, 0);
-  const overdueCount = students.filter((s) => s.feeStatus !== "paid").length;
-  const overdueIds = students.filter((s) => s.feeStatus !== "paid").map((s) => s.id);
-
-  const toggle = (id: string) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  };
-
-  const toggleAllFiltered = () => {
-    if (filtered.every((s) => selected.has(s.id))) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map((s) => s.id)));
-    }
-  };
-
-  const saveFeeSetup = async (values: {
-    feeAmount: number;
-    feeStatus: FeeStatus;
-    daysOverdue: number;
-  }) => {
-    if (!editStudent) return;
+  const markPaid = async (row: InstallmentRow) => {
     setBusy(true);
     try {
-      await api.updateStudentFees(editStudent.id, {
-        feeAmount: values.feeAmount,
-        feeStatus: values.feeStatus,
-        daysOverdue: values.feeStatus === "paid" ? 0 : values.daysOverdue,
-      });
-      toast.success(`Fee updated for ${editStudent.name}`);
-      setEditStudent(null);
+      await api.updateFeeInstallment(row.id, { status: "paid", method: "cash" });
+      toast.success(`${row.studentName} — ${row.monthLabel} marked paid`);
+      await load();
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Update failed");
@@ -104,76 +124,15 @@ const Fees = () => {
     }
   };
 
-  const savePayment = async (values: {
-    amount: number;
-    month: string;
-    method: string;
-    note: string;
-    markPaid: boolean;
-  }) => {
-    if (!payStudent) return;
+  const markOverdue = async (row: InstallmentRow) => {
     setBusy(true);
     try {
-      await api.createPayment({
-        studentId: payStudent.id,
-        amount: values.amount,
-        month: values.month,
-        method: values.method,
-        note: values.note || "Manual entry",
-        markPaid: values.markPaid,
-      });
-      if (values.markPaid) {
-        toast.success(`Payment recorded — ${payStudent.name} marked paid`);
-      } else {
-        toast.success("Payment recorded (status unchanged)");
-      }
-      setPayStudent(null);
+      await api.updateFeeInstallment(row.id, { status: "overdue", daysOverdue: Math.max(1, row.daysOverdue || 1) });
+      toast.success("Marked overdue — parent portal updated");
+      await load();
       await refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Payment failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const bulkSetStatus = async (feeStatus: FeeStatus) => {
-    const ids = Array.from(selected);
-    if (!ids.length) return;
-    setBusy(true);
-    try {
-      const daysOverdue = feeStatus === "paid" ? 0 : feeStatus === "overdue1" ? 3 : 10;
-      await Promise.all(
-        ids.map((id) => api.updateStudentFees(id, { feeStatus, daysOverdue }))
-      );
-      toast.success(`Updated status for ${ids.length} student${ids.length > 1 ? "s" : ""}`);
-      setSelected(new Set());
-      await refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Bulk update failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const applyBatchMonthlyFee = async () => {
-    const ids = Array.from(selected);
-    if (!ids.length) return;
-    setBusy(true);
-    try {
-      let updated = 0;
-      for (const id of ids) {
-        const s = students.find((x) => x.id === id);
-        if (!s) continue;
-        const batch = getBatch(s.batchId);
-        const feeAmount = batch?.monthlyFee || s.feeAmount;
-        await api.updateStudentFees(id, { feeAmount });
-        updated += 1;
-      }
-      toast.success(`Applied batch monthly fee to ${updated} student${updated > 1 ? "s" : ""}`);
-      setSelected(new Set());
-      await refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not apply fees");
+      toast.error(e instanceof Error ? e.message : "Update failed");
     } finally {
       setBusy(false);
     }
@@ -183,422 +142,409 @@ const Fees = () => {
     <div className="space-y-5">
       <PageHeader
         title="Fee Management"
-        description="Set monthly fees, update payment status per student, and record collections."
+        description="Set monthly or multi-month packages, track each installment to package end, and update status every month."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setPkgOpen(true)}>
+              <Package className="h-4 w-4 mr-1.5" /> Packages
+            </Button>
+            <Button className="bg-primary text-primary-foreground" onClick={() => setEnrollOpen(true)}>
+              <Plus className="h-4 w-4 mr-1.5" /> Enroll student
+            </Button>
+          </div>
+        }
       />
 
-      <div className="grid sm:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard label="Collected this month" value={inr(monthlyRevenue)} icon={<CreditCard className="h-4 w-4" />} tone="success" />
-        <StatCard label="Total overdue" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} tone="danger" hint={`${overdueCount} students`} />
-        <StatCard label="Monthly fee book" value={inr(expectedBook)} icon={<Calendar className="h-4 w-4" />} hint={`${students.length} students`} />
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <StatCard
+          label={`Collected (${metrics?.thisMonth || "…"})`}
+          value={inr(metrics?.collectedThisMonth || 0)}
+          icon={<CreditCard className="h-4 w-4" />}
+          tone="success"
+        />
+        <StatCard
+          label="Expected this month"
+          value={inr(metrics?.expectedThisMonth || 0)}
+          icon={<Calendar className="h-4 w-4" />}
+          hint={`${metrics?.collectionRate ?? 0}% collected`}
+        />
+        <StatCard
+          label="Overdue installments"
+          value={String(metrics?.overdueInstallments || 0)}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone="danger"
+          hint={`${metrics?.pendingInstallments || 0} pending`}
+        />
+        <StatCard
+          label="Active packages"
+          value={String(metrics?.activePackages || 0)}
+          icon={<Package className="h-4 w-4" />}
+          hint={`Book ${inr(metrics?.packageBookValue || 0)}`}
+        />
       </div>
 
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="p-4 border-b border-border space-y-3">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="paid">Paid</TabsTrigger>
-                <TabsTrigger value="overdue1">1–7 days</TabsTrigger>
-                <TabsTrigger value="overdue8">8+ days</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <div className="flex flex-wrap items-center gap-2">
-              {selected.size > 0 && (
-                <>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void bulkSetStatus("paid")}>
-                    Mark paid ({selected.size})
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void bulkSetStatus("overdue1")}>
-                    Mark overdue
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void bulkSetStatus("overdue8")}>
-                    Mark critical
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void applyBatchMonthlyFee()}>
-                    Apply batch fee
-                  </Button>
-                  <Button size="sm" onClick={() => setPreviewIds(Array.from(selected))} className="bg-primary text-primary-foreground hover:bg-primary/90">
-                    <Send className="h-3.5 w-3.5 mr-1.5" /> Remind ({selected.size})
-                  </Button>
-                </>
-              )}
-              <Button size="sm" variant="outline" onClick={() => setPreviewIds(overdueIds)} disabled={!overdueIds.length}>
-                <MessageCircle className="h-3.5 w-3.5 mr-1.5" /> Remind overdue
-              </Button>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="dues">Monthly dues</TabsTrigger>
+          <TabsTrigger value="packages">Fee packages</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dues" className="mt-4 space-y-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Select value={month} onValueChange={setMonth}>
+              <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {monthOptions().map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input className="pl-9" placeholder="Search student" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Search student or parent phone"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[900px]">
+                <thead className="bg-muted/30 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium">Student</th>
+                    <th className="text-left px-4 py-3 font-medium">Package</th>
+                    <th className="text-left px-4 py-3 font-medium">Month</th>
+                    <th className="text-left px-4 py-3 font-medium">Amount</th>
+                    <th className="text-left px-4 py-3 font-medium">Status</th>
+                    <th className="text-right px-4 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                        No dues for this month. Enroll students on a fee package to generate monthly installments.
+                      </td>
+                    </tr>
+                  )}
+                  {filtered.map((row) => (
+                    <tr key={row.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3 font-medium">{row.studentName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{row.packageName}</td>
+                      <td className="px-4 py-3">{row.monthLabel}</td>
+                      <td className="px-4 py-3 font-medium">{inr(row.amount)}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className={cn("capitalize", STATUS_BADGE[row.status] || "")}>
+                          {row.status}
+                          {row.status === "overdue" && row.daysOverdue > 0 ? ` · ${row.daysOverdue}d` : ""}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1.5">
+                          {row.status !== "paid" && (
+                            <>
+                              <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground" onClick={() => void markPaid(row)}>
+                                <Banknote className="h-3.5 w-3.5 mr-1" /> Mark paid
+                              </Button>
+                              {row.status !== "overdue" && (
+                                <Button size="sm" variant="outline" disabled={busy} onClick={() => void markOverdue(row)}>
+                                  Mark overdue
+                                </Button>
+                              )}
+                            </>
+                          )}
+                          {row.status === "paid" && (
+                            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Paid
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <Select value={batchFilter} onValueChange={setBatchFilter}>
-              <SelectTrigger className="w-full sm:w-52">
-                <SelectValue placeholder="Batch" />
-              </SelectTrigger>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="packages" className="mt-4">
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {packages.map((p) => (
+              <div key={p.id} className="rounded-2xl border border-border bg-card p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-display font-semibold">{p.name}</h3>
+                  <Badge variant="outline">{p.months} mo</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground min-h-[32px]">{p.description || "—"}</p>
+                <p className="text-sm">
+                  <span className="font-semibold">{inr(p.monthlyAmount)}</span>
+                  <span className="text-muted-foreground"> / month</span>
+                </p>
+                <p className="text-xs text-muted-foreground">Package total {inr(p.totalAmount)}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            Enrolling a student creates dues for every month until the package ends. Mark each month paid from Monthly dues.
+          </p>
+        </TabsContent>
+      </Tabs>
+
+      <EnrollDialog
+        open={enrollOpen}
+        students={students}
+        packages={packages}
+        busy={busy}
+        onClose={() => setEnrollOpen(false)}
+        onSave={async (body) => {
+          setBusy(true);
+          try {
+            await api.enrollFeePackage(body);
+            toast.success("Package enrolled — monthly dues created through package end");
+            setEnrollOpen(false);
+            await load();
+            await refresh();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Enroll failed");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+
+      <CreatePackageDialog
+        open={pkgOpen}
+        busy={busy}
+        onClose={() => setPkgOpen(false)}
+        onSave={async (body) => {
+          setBusy(true);
+          try {
+            await api.createFeePackage(body);
+            toast.success("Package created");
+            setPkgOpen(false);
+            await load();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not create package");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </div>
+  );
+};
+
+function EnrollDialog({
+  open,
+  students,
+  packages,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  students: Student[];
+  packages: FeePackage[];
+  busy: boolean;
+  onClose: () => void;
+  onSave: (body: { studentId: string; packageId?: string; startMonth?: string; months?: number; monthlyAmount?: number; packageName?: string }) => Promise<void>;
+}) {
+  const [studentId, setStudentId] = useState("");
+  const [packageId, setPackageId] = useState("");
+  const [startMonth, setStartMonth] = useState(currentMonth());
+  const [mode, setMode] = useState<"package" | "monthly">("package");
+
+  useEffect(() => {
+    if (!open) return;
+    setStudentId(students[0]?.id || "");
+    setPackageId(packages[0]?.id || "");
+    setStartMonth(currentMonth());
+    setMode("package");
+  }, [open, students, packages]);
+
+  const selectedPkg = packages.find((p) => p.id === packageId);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enroll on fee package</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Student</Label>
+            <Select value={studentId} onValueChange={setStudentId}>
+              <SelectTrigger><SelectValue placeholder="Select student" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All batches</SelectItem>
-                {batches.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                {students.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-1 p-1 rounded-xl bg-muted/40 border border-border/60">
+            <button
+              type="button"
+              className={cn("flex-1 text-xs py-2 rounded-lg", mode === "package" ? "bg-primary/20 font-medium" : "text-muted-foreground")}
+              onClick={() => setMode("package")}
+            >
+              Select package
+            </button>
+            <button
+              type="button"
+              className={cn("flex-1 text-xs py-2 rounded-lg", mode === "monthly" ? "bg-primary/20 font-medium" : "text-muted-foreground")}
+              onClick={() => setMode("monthly")}
+            >
+              Monthly only
+            </button>
+          </div>
+          {mode === "package" ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Package</Label>
+              <Select value={packageId} onValueChange={setPackageId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {packages.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} · {p.months} mo · ₹{p.monthlyAmount.toLocaleString("en-IN")}/mo
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedPkg && (
+                <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                  <Clock className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  Creates {selectedPkg.months} dues from {startMonth} through package end. Total ₹{selectedPkg.totalAmount.toLocaleString("en-IN")}.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Creates a rolling 1-month enrollment using the student’s current monthly fee amount.
+            </p>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs">Start month</Label>
+            <Select value={startMonth} onValueChange={setStartMonth}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {monthOptions().map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[920px]">
-            <thead className="bg-muted/30 text-xs text-muted-foreground">
-              <tr>
-                <th className="w-10 px-4 py-3">
-                  <Checkbox
-                    checked={filtered.length > 0 && filtered.every((s) => selected.has(s.id))}
-                    onCheckedChange={() => toggleAllFiltered()}
-                  />
-                </th>
-                <th className="text-left px-4 py-3 font-medium">Student</th>
-                <th className="text-left px-4 py-3 font-medium">Batch</th>
-                <th className="text-left px-4 py-3 font-medium">Monthly fee</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="text-left px-4 py-3 font-medium">Days overdue</th>
-                <th className="text-right px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                    No students match these filters.
-                  </td>
-                </tr>
-              )}
-              {filtered.map((s) => {
-                const b = getBatch(s.batchId);
-                return (
-                  <tr key={s.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggle(s.id)} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{s.name}</p>
-                      <p className="text-xs text-muted-foreground">{s.parentName || "—"} · {s.parentPhone || "no phone"}</p>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      <p>{b?.name ?? "—"}</p>
-                      {b?.monthlyFee ? (
-                        <p className="text-[11px] text-muted-foreground">Batch default {inr(b.monthlyFee)}</p>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 font-medium">{inr(s.feeAmount)}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className={FEE_BADGES[s.feeStatus]}>
-                        {FEE_LABEL[s.feeStatus]}
-                      </Badge>
-                    </td>
-                    <td className={cn("px-4 py-3", s.feeStatus === "overdue8" ? "text-destructive font-medium" : "text-muted-foreground")}>
-                      {s.daysOverdue > 0 ? `${s.daysOverdue}d` : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end flex-wrap gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => setEditStudent(s)}>
-                          <Pencil className="h-3.5 w-3.5 mr-1" /> Edit fee
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => setPayStudent(s)}>
-                          <Banknote className="h-3.5 w-3.5 mr-1" /> Record payment
-                        </Button>
-                        {s.feeStatus !== "paid" && (
-                          <Button size="sm" variant="ghost" onClick={() => setPreviewIds([s.id])}>
-                            Remind
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <FeeSetupDialog
-        student={editStudent}
-        batchDefault={editStudent ? getBatch(editStudent.batchId)?.monthlyFee : undefined}
-        busy={busy}
-        onClose={() => setEditStudent(null)}
-        onSave={saveFeeSetup}
-      />
-
-      <RecordPaymentDialog
-        student={payStudent}
-        busy={busy}
-        onClose={() => setPayStudent(null)}
-        onSave={savePayment}
-      />
-
-      <ReminderModal ids={previewIds} students={students} onClose={() => { setPreviewIds(null); setSelected(new Set()); }} />
-    </div>
-  );
-};
-
-function FeeSetupDialog({
-  student,
-  batchDefault,
-  busy,
-  onClose,
-  onSave,
-}: {
-  student: Student | null;
-  batchDefault?: number;
-  busy: boolean;
-  onClose: () => void;
-  onSave: (v: { feeAmount: number; feeStatus: FeeStatus; daysOverdue: number }) => Promise<void>;
-}) {
-  const [feeAmount, setFeeAmount] = useState("");
-  const [feeStatus, setFeeStatus] = useState<FeeStatus>("paid");
-  const [daysOverdue, setDaysOverdue] = useState("0");
-
-  useEffect(() => {
-    if (!student) return;
-    setFeeAmount(String(student.feeAmount));
-    setFeeStatus(student.feeStatus);
-    setDaysOverdue(String(student.daysOverdue || 0));
-  }, [student]);
-
-  if (!student) return null;
-
-  return (
-    <Dialog open={!!student} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit fee — {student.name}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-1">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Monthly fee (₹)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={feeAmount}
-              onChange={(e) => setFeeAmount(e.target.value)}
-            />
-            {batchDefault != null && (
-              <button
-                type="button"
-                className="text-[11px] text-primary hover:underline"
-                onClick={() => setFeeAmount(String(batchDefault))}
-              >
-                Use batch default ({batchDefault.toLocaleString("en-IN")})
-              </button>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Fee status</Label>
-            <Select value={feeStatus} onValueChange={(v) => {
-              const status = v as FeeStatus;
-              setFeeStatus(status);
-              if (status === "paid") setDaysOverdue("0");
-              else if (status === "overdue1" && Number(daysOverdue) === 0) setDaysOverdue("3");
-              else if (status === "overdue8" && Number(daysOverdue) < 8) setDaysOverdue("10");
-            }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="overdue1">Overdue 1–7 days</SelectItem>
-                <SelectItem value="overdue8">Overdue 8+ days (critical)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Days overdue</Label>
-            <Input
-              type="number"
-              min={0}
-              disabled={feeStatus === "paid"}
-              value={daysOverdue}
-              onChange={(e) => setDaysOverdue(e.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Parent portal shows this status and amount for this student only.
-            </p>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button
-            className="bg-primary text-primary-foreground"
-            disabled={busy || !feeAmount || Number(feeAmount) < 0}
-            onClick={() =>
-              void onSave({
-                feeAmount: Number(feeAmount) || 0,
-                feeStatus,
-                daysOverdue: feeStatus === "paid" ? 0 : Math.max(0, Number(daysOverdue) || 0),
-              })
-            }
-          >
-            {busy ? "Saving…" : "Save fee setup"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RecordPaymentDialog({
-  student,
-  busy,
-  onClose,
-  onSave,
-}: {
-  student: Student | null;
-  busy: boolean;
-  onClose: () => void;
-  onSave: (v: { amount: number; month: string; method: string; note: string; markPaid: boolean }) => Promise<void>;
-}) {
-  const months = monthOptions();
-  const [amount, setAmount] = useState("");
-  const [month, setMonth] = useState(currentFeeMonth());
-  const [method, setMethod] = useState("cash");
-  const [note, setNote] = useState("");
-  const [markPaid, setMarkPaid] = useState(true);
-
-  useEffect(() => {
-    if (!student) return;
-    setAmount(String(student.feeAmount));
-    setMonth(currentFeeMonth());
-    setMethod("cash");
-    setNote("");
-    setMarkPaid(true);
-  }, [student]);
-
-  if (!student) return null;
-
-  return (
-    <Dialog open={!!student} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Record payment — {student.name}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-1">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Amount (₹)</Label>
-            <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">For month</Label>
-              <Select value={month} onValueChange={setMonth}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {months.map((m) => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Method</Label>
-              <Select value={method} onValueChange={setMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
-                  <SelectItem value="online">Online</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Note (optional)</Label>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Receipt / reference" />
-          </div>
-          <label className="flex items-center gap-2 text-sm rounded-lg border border-border px-3 py-2.5">
-            <Checkbox checked={markPaid} onCheckedChange={(c) => setMarkPaid(!!c)} />
-            Mark student as paid (clears overdue)
-          </label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button
-            className="bg-primary text-primary-foreground"
-            disabled={busy || !amount || Number(amount) <= 0}
-            onClick={() =>
-              void onSave({
-                amount: Number(amount),
-                month,
-                method,
-                note,
-                markPaid,
-              })
-            }
-          >
-            {busy ? "Saving…" : "Save payment"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const ReminderModal = ({
-  ids,
-  students,
-  onClose,
-}: {
-  ids: string[] | null;
-  students: Student[];
-  onClose: () => void;
-}) => {
-  if (!ids) return null;
-  const sample = students.find((s) => s.id === ids[0]);
-  if (!sample) return null;
-  const amount = "₹" + sample.feeAmount.toLocaleString("en-IN");
-  const feeMonth = currentFeeMonth();
-  const phone = (sample.parentPhone || "").replace(/\D/g, "").slice(-10);
-  const text = `Hi ${sample.parentName || "Parent"}, friendly reminder that ${sample.name}'s fee of ${amount} for ${feeMonth} is overdue. Please pay at your earliest convenience. — Sun Sports`;
-  return (
-    <Dialog open={!!ids} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>WhatsApp Reminder Preview</DialogTitle>
-        </DialogHeader>
-        <div className="rounded-2xl bg-emerald-950/40 border border-emerald-700/30 p-4">
-          <div className="rounded-lg bg-emerald-900/40 p-3 text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-            {text}
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Opens WhatsApp with a prefilled message.
-          {ids.length > 1 ? ` Preview shows 1 of ${ids.length} selected.` : ""}
-        </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            className="bg-primary text-primary-foreground"
+            disabled={busy || !studentId || (mode === "package" && !packageId)}
             onClick={() => {
-              if (phone.length >= 10) {
-                window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
-                toast.success("Opening WhatsApp");
+              if (mode === "package") {
+                void onSave({ studentId, packageId, startMonth });
               } else {
-                toast.error("No parent WhatsApp on this student");
+                const s = students.find((x) => x.id === studentId);
+                void onSave({
+                  studentId,
+                  startMonth,
+                  months: 1,
+                  monthlyAmount: s?.feeAmount || 15000,
+                  packageName: "Monthly",
+                });
               }
-              onClose();
             }}
           >
-            <Send className="h-4 w-4 mr-1.5" /> Open WhatsApp
+            {busy ? "Saving…" : "Enroll & create dues"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
-};
+}
+
+function CreatePackageDialog({
+  open,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (body: { name: string; description?: string; months: number; monthlyAmount: number }) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [months, setMonths] = useState("3");
+  const [monthlyAmount, setMonthlyAmount] = useState("15000");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setMonths("3");
+    setMonthlyAmount("15000");
+    setDescription("");
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create fee package</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Quarterly HP" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Months</Label>
+              <Input type="number" min={1} value={months} onChange={(e) => setMonths(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Monthly ₹</Label>
+              <Input type="number" min={0} value={monthlyAmount} onChange={(e) => setMonthlyAmount(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Description</Label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Package total: ₹{((Number(months) || 0) * (Number(monthlyAmount) || 0)).toLocaleString("en-IN")}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-primary text-primary-foreground"
+            disabled={busy || !name.trim() || !Number(months) || !Number(monthlyAmount)}
+            onClick={() =>
+              void onSave({
+                name: name.trim(),
+                description,
+                months: Number(months),
+                monthlyAmount: Number(monthlyAmount),
+              })
+            }
+          >
+            {busy ? "Saving…" : "Create package"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default Fees;

@@ -8,6 +8,12 @@ export function mapCoach(c: Coach) {
     phone: c.phone || "",
     specialty: c.specialty || "",
     email: c.email || "",
+    salaryMonthly: (c as Coach & { salaryMonthly?: number }).salaryMonthly ?? 0,
+    status: (c as Coach & { status?: string }).status || "active",
+    joinDate: (c as Coach & { joinDate?: Date | null }).joinDate
+      ? (c as Coach & { joinDate: Date }).joinDate.toISOString().slice(0, 10)
+      : "",
+    notes: (c as Coach & { notes?: string | null }).notes || "",
   };
 }
 

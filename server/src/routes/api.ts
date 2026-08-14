@@ -12,6 +12,12 @@ import {
 import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
+import {
+  buildMonthSchedule,
+  ensureDefaultFeePackages,
+  monthLabelFromDate,
+  refreshStudentFeeState,
+} from "../lib/feeSync.js";
 
 export const api = Router();
 
@@ -106,6 +112,10 @@ api.post("/coaches", async (req, res) => {
       email: req.body.email || null,
       specialty: req.body.specialty || null,
       initials,
+      salaryMonthly: Number(req.body.salaryMonthly) || 0,
+      status: req.body.status === "inactive" ? "inactive" : "active",
+      joinDate: req.body.joinDate ? new Date(req.body.joinDate) : new Date(),
+      notes: req.body.notes || null,
     },
   });
   try {
@@ -144,6 +154,14 @@ api.put("/coaches/:id", async (req, res) => {
         ...(phoneUpdate !== undefined ? { phone: phoneUpdate } : {}),
         ...(req.body.email !== undefined ? { email: req.body.email } : {}),
         ...(req.body.specialty !== undefined ? { specialty: req.body.specialty } : {}),
+        ...(req.body.salaryMonthly !== undefined ? { salaryMonthly: Number(req.body.salaryMonthly) || 0 } : {}),
+        ...(req.body.status !== undefined
+          ? { status: req.body.status === "inactive" ? "inactive" : "active" }
+          : {}),
+        ...(req.body.joinDate !== undefined
+          ? { joinDate: req.body.joinDate ? new Date(req.body.joinDate) : null }
+          : {}),
+        ...(req.body.notes !== undefined ? { notes: req.body.notes } : {}),
       },
     });
     try {
@@ -780,4 +798,355 @@ api.delete("/users/:id", async (req, res) => {
   } catch {
     res.status(404).json({ error: "User not found" });
   }
+});
+
+// ─── Fee packages / enrollments / installments ───────────────────────
+
+function mapPackage(p: {
+  id: string;
+  name: string;
+  description: string | null;
+  months: number;
+  monthlyAmount: number;
+  totalAmount: number;
+  active: boolean;
+}) {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description || "",
+    months: p.months,
+    monthlyAmount: p.monthlyAmount,
+    totalAmount: p.totalAmount,
+    active: p.active,
+  };
+}
+
+function mapInstallment(i: {
+  id: string;
+  enrollmentId: string;
+  studentId: string;
+  monthLabel: string;
+  dueDate: Date;
+  amount: number;
+  status: string;
+  daysOverdue: number;
+  paidAt: Date | null;
+}) {
+  return {
+    id: i.id,
+    enrollmentId: i.enrollmentId,
+    studentId: i.studentId,
+    monthLabel: i.monthLabel,
+    dueDate: i.dueDate.toISOString().slice(0, 10),
+    amount: i.amount,
+    status: i.status,
+    daysOverdue: i.daysOverdue,
+    paidAt: i.paidAt ? i.paidAt.toISOString() : null,
+  };
+}
+
+api.get("/fee-packages", async (_req, res) => {
+  await ensureDefaultFeePackages();
+  const rows = await prisma.feePackage.findMany({ orderBy: [{ months: "asc" }, { name: "asc" }] });
+  res.json(rows.map(mapPackage));
+});
+
+api.post("/fee-packages", async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const months = Math.max(1, Number(req.body.months) || 1);
+  const monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || 0);
+  if (!name || !monthlyAmount) return res.status(400).json({ error: "name and monthlyAmount required" });
+  const totalAmount = Number(req.body.totalAmount) || monthlyAmount * months;
+  const row = await prisma.feePackage.create({
+    data: {
+      name,
+      description: req.body.description || null,
+      months,
+      monthlyAmount,
+      totalAmount,
+      active: req.body.active !== false,
+    },
+  });
+  res.status(201).json(mapPackage(row));
+});
+
+api.put("/fee-packages/:id", async (req, res) => {
+  try {
+    const months = req.body.months !== undefined ? Math.max(1, Number(req.body.months) || 1) : undefined;
+    const monthlyAmount =
+      req.body.monthlyAmount !== undefined ? Math.max(0, Number(req.body.monthlyAmount) || 0) : undefined;
+    const row = await prisma.feePackage.update({
+      where: { id: req.params.id },
+      data: {
+        ...(req.body.name != null ? { name: String(req.body.name).trim() } : {}),
+        ...(req.body.description !== undefined ? { description: req.body.description } : {}),
+        ...(months !== undefined ? { months } : {}),
+        ...(monthlyAmount !== undefined ? { monthlyAmount } : {}),
+        ...(req.body.totalAmount !== undefined || (months != null && monthlyAmount != null)
+          ? {
+              totalAmount:
+                Number(req.body.totalAmount) ||
+                (monthlyAmount ?? 0) * (months ?? 1),
+            }
+          : {}),
+        ...(req.body.active !== undefined ? { active: !!req.body.active } : {}),
+      },
+    });
+    res.json(mapPackage(row));
+  } catch {
+    res.status(404).json({ error: "Package not found" });
+  }
+});
+
+api.delete("/fee-packages/:id", async (req, res) => {
+  try {
+    await prisma.feePackage.update({
+      where: { id: req.params.id },
+      data: { active: false },
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Package not found" });
+  }
+});
+
+/** Enroll student on a package — creates monthly installments through package end */
+api.post("/fee-enrollments", async (req, res) => {
+  const studentId = String(req.body.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
+  if (!student) return res.status(404).json({ error: "Student not found" });
+
+  let packageName = String(req.body.packageName || "").trim();
+  let months = Math.max(1, Number(req.body.months) || 1);
+  let monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || student.feeAmount || 15000);
+  let packageId: string | null = req.body.packageId ? String(req.body.packageId) : null;
+
+  if (packageId) {
+    const pkg = await prisma.feePackage.findUnique({ where: { id: packageId } });
+    if (!pkg) return res.status(404).json({ error: "Package not found" });
+    packageName = pkg.name;
+    months = pkg.months;
+    monthlyAmount = pkg.monthlyAmount;
+  }
+  if (!packageName) packageName = months === 1 ? "Monthly" : `${months}-month package`;
+
+  const startMonth = String(req.body.startMonth || monthLabelFromDate(new Date()));
+  const schedule = buildMonthSchedule(startMonth, months);
+  const endMonth = schedule[schedule.length - 1]?.monthLabel || startMonth;
+  const totalAmount = monthlyAmount * months;
+
+  // Cancel previous active enrollments for this student (keep paid history)
+  await prisma.feeEnrollment.updateMany({
+    where: { studentId, status: "active" },
+    data: { status: "cancelled" },
+  });
+
+  const enrollment = await prisma.feeEnrollment.create({
+    data: {
+      studentId,
+      packageId,
+      packageName,
+      months,
+      monthlyAmount,
+      totalAmount,
+      startMonth,
+      endMonth,
+      status: "active",
+      installments: {
+        create: schedule.map((s) => ({
+          studentId,
+          monthLabel: s.monthLabel,
+          dueDate: s.dueDate,
+          amount: monthlyAmount,
+          status: "pending",
+          daysOverdue: 0,
+        })),
+      },
+    },
+    include: { installments: { orderBy: { dueDate: "asc" } } },
+  });
+
+  await refreshStudentFeeState(studentId);
+
+  res.status(201).json({
+    id: enrollment.id,
+    studentId: enrollment.studentId,
+    packageId: enrollment.packageId,
+    packageName: enrollment.packageName,
+    months: enrollment.months,
+    monthlyAmount: enrollment.monthlyAmount,
+    totalAmount: enrollment.totalAmount,
+    startMonth: enrollment.startMonth,
+    endMonth: enrollment.endMonth,
+    status: enrollment.status,
+    installments: enrollment.installments.map(mapInstallment),
+  });
+});
+
+api.get("/fee-enrollments", async (req, res) => {
+  const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+  const rows = await prisma.feeEnrollment.findMany({
+    where: {
+      ...(studentId ? { studentId } : {}),
+      ...(req.query.status ? { status: String(req.query.status) } : {}),
+    },
+    include: { installments: { orderBy: { dueDate: "asc" } }, student: true },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  res.json(
+    rows.map((e) => ({
+      id: e.id,
+      studentId: e.studentId,
+      studentName: e.student.name,
+      packageId: e.packageId,
+      packageName: e.packageName,
+      months: e.months,
+      monthlyAmount: e.monthlyAmount,
+      totalAmount: e.totalAmount,
+      startMonth: e.startMonth,
+      endMonth: e.endMonth,
+      status: e.status,
+      installments: e.installments.map(mapInstallment),
+      paidCount: e.installments.filter((i) => i.status === "paid").length,
+      dueCount: e.installments.filter((i) => i.status !== "paid").length,
+    }))
+  );
+});
+
+api.get("/fee-installments", async (req, res) => {
+  const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+  const monthLabel = req.query.month ? String(req.query.month) : undefined;
+  const status = req.query.status ? String(req.query.status) : undefined;
+
+  // Refresh overdue for listed students' open installments (lightweight: current month filter)
+  const rows = await prisma.feeInstallment.findMany({
+    where: {
+      ...(studentId ? { studentId } : {}),
+      ...(monthLabel ? { monthLabel } : {}),
+      ...(status ? { status } : {}),
+      enrollment: { status: { in: ["active", "completed"] } },
+    },
+    include: { student: true, enrollment: true },
+    orderBy: [{ dueDate: "asc" }, { studentId: "asc" }],
+    take: 500,
+  });
+
+  const studentIds = [...new Set(rows.map((r) => r.studentId))];
+  await Promise.all(studentIds.map((id) => refreshStudentFeeState(id).catch(() => undefined)));
+
+  const refreshed = await prisma.feeInstallment.findMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    include: { student: true, enrollment: true },
+    orderBy: [{ dueDate: "asc" }, { studentId: "asc" }],
+  });
+
+  res.json(
+    refreshed.map((i) => ({
+      ...mapInstallment(i),
+      studentName: i.student.name,
+      parentPhone: i.student.parentPhone || "",
+      packageName: i.enrollment.packageName,
+      enrollmentStatus: i.enrollment.status,
+    }))
+  );
+});
+
+api.put("/fee-installments/:id", async (req, res) => {
+  try {
+    const existing = await prisma.feeInstallment.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "Installment not found" });
+
+    const markPaid = req.body.status === "paid" || req.body.markPaid === true;
+    const markPending = req.body.status === "pending";
+    const markOverdue = req.body.status === "overdue";
+
+    if (markPaid) {
+      const method = String(req.body.method || "cash");
+      const payment = await prisma.feePayment.create({
+        data: {
+          studentId: existing.studentId,
+          amount: Number(req.body.amount) || existing.amount,
+          method,
+          month: existing.monthLabel,
+          note: req.body.note || `Package installment ${existing.monthLabel}`,
+          installmentId: existing.id,
+        },
+      });
+      await prisma.feeInstallment.update({
+        where: { id: existing.id },
+        data: { status: "paid", daysOverdue: 0, paidAt: payment.paidAt },
+      });
+    } else if (markPending || markOverdue) {
+      const days = markOverdue
+        ? Math.max(1, Number(req.body.daysOverdue) || existing.daysOverdue || 1)
+        : 0;
+      await prisma.feeInstallment.update({
+        where: { id: existing.id },
+        data: {
+          status: markOverdue ? "overdue" : "pending",
+          daysOverdue: days,
+          paidAt: null,
+          ...(req.body.amount !== undefined ? { amount: Number(req.body.amount) } : {}),
+        },
+      });
+    } else if (req.body.amount !== undefined) {
+      await prisma.feeInstallment.update({
+        where: { id: existing.id },
+        data: { amount: Number(req.body.amount) },
+      });
+    }
+
+    await refreshStudentFeeState(existing.studentId);
+    const row = await prisma.feeInstallment.findUnique({ where: { id: existing.id } });
+    res.json(row ? mapInstallment(row) : { ok: true });
+  } catch (e) {
+    console.error("fee-installment update:", e);
+    res.status(500).json({ error: "Could not update installment" });
+  }
+});
+
+api.get("/fee-metrics", async (_req, res) => {
+  await ensureDefaultFeePackages();
+  const thisMonth = monthLabelFromDate(new Date());
+  const [payments, installments, enrollments, coaches] = await Promise.all([
+    prisma.feePayment.findMany({ orderBy: { paidAt: "desc" }, take: 500 }),
+    prisma.feeInstallment.findMany({
+      where: { enrollment: { status: { in: ["active", "completed"] } } },
+    }),
+    prisma.feeEnrollment.findMany({ where: { status: "active" } }),
+    prisma.coach.findMany(),
+  ]);
+
+  const collectedThisMonth = payments
+    .filter((p) => p.month === thisMonth || monthLabelFromDate(p.paidAt) === thisMonth)
+    .reduce((a, p) => a + p.amount, 0);
+  const expectedThisMonth = installments
+    .filter((i) => i.monthLabel === thisMonth)
+    .reduce((a, i) => a + i.amount, 0);
+  const paidInstallments = installments.filter((i) => i.status === "paid").length;
+  const overdueInstallments = installments.filter((i) => i.status === "overdue").length;
+  const pendingInstallments = installments.filter((i) => i.status === "pending").length;
+  const packageBook = enrollments.reduce((a, e) => a + e.totalAmount, 0);
+  const collectedAll = payments.reduce((a, p) => a + p.amount, 0);
+  const salaryBill = coaches
+    .filter((c) => (c as { status?: string }).status !== "inactive")
+    .reduce((a, c) => a + ((c as { salaryMonthly?: number }).salaryMonthly || 0), 0);
+
+  res.json({
+    thisMonth,
+    collectedThisMonth,
+    expectedThisMonth,
+    collectionRate:
+      expectedThisMonth > 0 ? Math.round((collectedThisMonth / expectedThisMonth) * 100) : 100,
+    paidInstallments,
+    overdueInstallments,
+    pendingInstallments,
+    activePackages: enrollments.length,
+    packageBookValue: packageBook,
+    totalCollected: collectedAll,
+    coachSalaryBill: salaryBill,
+  });
 });

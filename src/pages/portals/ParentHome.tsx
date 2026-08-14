@@ -757,6 +757,38 @@ function FeesTab({ child }: { child: ParentChild }) {
         )}
       </div>
 
+      {(child.feeSchedule?.length ?? 0) > 0 && (
+        <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          <div className="p-5 border-b border-border">
+            <h3 className="font-display font-semibold">Package schedule</h3>
+            <p className="text-xs text-muted-foreground">Monthly dues until package end</p>
+          </div>
+          <div className="divide-y divide-border">
+            {child.feeSchedule!.map((i) => (
+              <div key={i.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{i.monthLabel}</p>
+                  <p className="text-xs text-muted-foreground">{inr(i.amount)}</p>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "capitalize",
+                    i.status === "paid"
+                      ? "text-primary border-primary/30"
+                      : i.status === "overdue"
+                        ? "text-destructive border-destructive/30"
+                        : "text-muted-foreground"
+                  )}
+                >
+                  {i.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
         <div className="p-5 border-b border-border">
           <h3 className="font-display font-semibold">Payment history</h3>

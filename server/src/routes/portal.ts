@@ -54,7 +54,7 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
       const mapped = mapStudent(s);
       const batch = s.batchId ? batchMap[s.batchId] : undefined;
       const coach = batch?.coachId ? coachMap[batch.coachId] : undefined;
-      const [grid, payments, notes] = await Promise.all([
+      const [grid, payments, notes, installments] = await Promise.all([
         attendanceGrid(s.id, 30),
         prisma.feePayment.findMany({
           where: { studentId: s.id },
@@ -66,6 +66,14 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
           orderBy: { createdAt: "desc" },
           take: 10,
         }),
+        prisma.feeInstallment.findMany({
+          where: {
+            studentId: s.id,
+            enrollment: { status: { in: ["active", "completed"] } },
+          },
+          orderBy: { dueDate: "asc" },
+          take: 24,
+        }),
       ]);
       return {
         ...mapped,
@@ -73,6 +81,15 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
         coach: coach || null,
         attendanceGrid: grid,
         payments,
+        feeSchedule: installments.map((i) => ({
+          id: i.id,
+          monthLabel: i.monthLabel,
+          amount: i.amount,
+          status: i.status,
+          daysOverdue: i.daysOverdue,
+          dueDate: i.dueDate.toISOString().slice(0, 10),
+          paidAt: i.paidAt ? i.paidAt.toISOString() : null,
+        })),
         notes: notes.map((n) => ({
           id: n.id,
           note: n.note,

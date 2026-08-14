@@ -24,6 +24,10 @@ model Coach {
   email         String?
   specialty     String?
   initials      String?
+  salaryMonthly Int      @default(0)
+  status        String   @default("active") /// active | inactive
+  joinDate      DateTime?
+  notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   batches       Batch[]
@@ -73,6 +77,8 @@ model Student {
   payments      FeePayment[]
   attendance    AttendanceRecord[]
   notes         CoachNote[]
+  feeEnrollments FeeEnrollment[]
+  feeInstallments FeeInstallment[]
 }
 
 model FeePayment {
@@ -84,7 +90,70 @@ model FeePayment {
   month       String?
   paidAt      DateTime @default(now())
   note        String?
+  installmentId String? @unique
+  installment FeeInstallment? @relation(fields: [installmentId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
+}
+
+/// Fee package templates — monthly or multi-month packages
+model FeePackage {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  months        Int      @default(1) /// 1 = monthly, 3 = quarter, 6, 12
+  monthlyAmount Int
+  totalAmount   Int
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  enrollments   FeeEnrollment[]
+
+  @@index([active])
+}
+
+/// Student enrolled on a package for a date range
+model FeeEnrollment {
+  id            String   @id @default(cuid())
+  studentId     String
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  packageId     String?
+  package       FeePackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  packageName   String
+  months        Int
+  monthlyAmount Int
+  totalAmount   Int
+  startMonth    String   /// e.g. "Aug 2026"
+  endMonth      String
+  status        String   @default("active") /// active | completed | cancelled
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  installments  FeeInstallment[]
+
+  @@index([studentId])
+  @@index([status])
+}
+
+/// One month's due inside a package — update status monthly from Fee Management
+model FeeInstallment {
+  id           String   @id @default(cuid())
+  enrollmentId String
+  enrollment   FeeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  monthLabel   String   /// e.g. "Aug 2026"
+  dueDate      DateTime @db.Date
+  amount       Int
+  status       String   @default("pending") /// pending | paid | overdue
+  daysOverdue  Int      @default(0)
+  paidAt       DateTime?
+  payment      FeePayment?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+  @@index([monthLabel])
+  @@unique([enrollmentId, monthLabel])
 }
 
 model AttendanceRecord {

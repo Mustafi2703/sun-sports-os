@@ -10,6 +10,7 @@ import { prisma } from "./lib/prisma.js";
 import { ageFromDob } from "./lib/mappers.js";
 import { bootstrapPortalUsers } from "./lib/bootstrapUsers.js";
 import { requireAuth } from "./lib/auth.js";
+import { ensureDefaultFeePackages } from "./lib/feeSync.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -249,6 +250,8 @@ app.listen(PORT, "0.0.0.0", async () => {
     await recomputeAttendancePctMany(ids);
     console.log(`Synced attendance % for ${ids.length} students from real records`);
     await bootstrapPortalUsers();
+    await ensureDefaultFeePackages();
+    console.log("Default fee packages ready");
   } catch (e) {
     console.warn("Startup sync skipped:", e);
   }

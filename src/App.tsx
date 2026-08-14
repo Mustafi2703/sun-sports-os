@@ -20,6 +20,7 @@ import Communications from "./pages/app/Communications";
 import Reports from "./pages/app/Reports";
 import AppSettings from "./pages/app/Settings";
 import Tournaments from "./pages/app/Tournaments";
+import CoachesPage from "./pages/app/Coaches";
 import ParentHome from "./pages/portals/ParentHome";
 import CoachHome from "./pages/portals/CoachHome";
 
@@ -78,6 +79,7 @@ const App = () => (
               <Route path="communications" element={<Communications />} />
               <Route path="reports" element={<Reports />} />
               <Route path="tournaments" element={<Tournaments />} />
+              <Route path="coaches" element={<CoachesPage />} />
               <Route path="settings" element={<AppSettings />} />
               <Route path="parent-portal" element={<Navigate to="/parent" replace />} />
               <Route path="coach" element={<Navigate to="/coach" replace />} />
