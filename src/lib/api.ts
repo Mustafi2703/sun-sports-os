@@ -257,8 +257,18 @@ export const api = {
     const qs = studentId ? `?studentId=${encodeURIComponent(studentId)}` : "";
     return request<FeePayment[]>(`/api/payments${qs}`);
   },
-  createPayment: (body: { studentId: string; amount: number; method?: string; month?: string; note?: string }) =>
-    request("/api/payments", { method: "POST", body: JSON.stringify(body) }),
+  createPayment: (body: {
+    studentId: string;
+    amount: number;
+    method?: string;
+    month?: string;
+    note?: string;
+    markPaid?: boolean;
+  }) => request("/api/payments", { method: "POST", body: JSON.stringify(body) }),
+  updateStudentFees: (
+    id: string,
+    body: { feeAmount?: number; feeStatus?: FeeStatus; daysOverdue?: number }
+  ) => request<Student>(`/api/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deletePayment: (id: string) =>
     request<{ ok: boolean }>(`/api/payments/${id}`, { method: "DELETE" }),
   listAttendance: (q: { date?: string; batchId?: string; studentId?: string }) => {

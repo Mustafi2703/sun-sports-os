@@ -426,7 +426,8 @@ api.post("/payments", async (req, res) => {
       paidAt: req.body.paidAt ? new Date(req.body.paidAt) : new Date(),
     },
   });
-  if (req.body.markPaid !== false) {
+  const markPaid = req.body.markPaid !== false && req.body.markPaid !== "false";
+  if (markPaid) {
     await prisma.student.update({
       where: { id: studentId },
       data: { feeStatus: "paid", daysOverdue: 0 },
