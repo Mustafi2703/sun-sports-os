@@ -23,10 +23,12 @@ import { cn } from "@/lib/utils";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 
-const MARKS: { value: AttendanceMark; label: string }[] = [
-  { value: "present", label: "P" },
-  { value: "late", label: "L" },
-  { value: "absent", label: "A" },
+const MARKS: { value: AttendanceMark; label: string; title: string }[] = [
+  { value: "present", label: "P", title: "Present" },
+  { value: "late", label: "L", title: "Late" },
+  { value: "absent", label: "A", title: "Absent" },
+  { value: "leave", label: "Lv", title: "Leave (parent informed)" },
+  { value: "no_session", label: "NS", title: "No session" },
 ];
 
 export default function CoachHome() {
@@ -37,7 +39,16 @@ export default function CoachHome() {
   const [batchId, setBatchId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [marks, setMarks] = useState<Record<string, AttendanceMark>>({});
+  const [notesByStudent, setNotesByStudent] = useState<Record<string, string>>({});
+  const [dayClosure, setDayClosure] = useState<{ title: string; reason: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [closureForm, setClosureForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    title: "",
+    reason: "",
+    type: "closure",
+  });
+  const [closureBusy, setClosureBusy] = useState(false);
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [assessId, setAssessId] = useState("");
   const [scoreDraft, setScoreDraft] = useState({ batting: 3, bowling: 3, fielding: 3, fitness: 3, temperament: 3 });
@@ -75,32 +86,55 @@ export default function CoachHome() {
     setScoreDraft({ ...assessStudent.scores });
   }, [assessStudent?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload saved marks when date / batch changes (same as admin attendance)
+  // Reload saved marks when date / batch changes (edit logged attendance)
   useEffect(() => {
     if (!date || !activeBatch) {
       setMarks({});
+      setNotesByStudent({});
+      setDayClosure(null);
       return;
     }
     void api
-      .listAttendance({ date, batchId: activeBatch })
-      .then((rows) => {
+      .coachListAttendance({ date, batchId: activeBatch })
+      .then((res) => {
         const next: Record<string, AttendanceMark> = {};
-        for (const r of rows) {
-          if (r.status === "present" || r.status === "absent" || r.status === "late") {
+        const notes: Record<string, string> = {};
+        for (const r of res.marks) {
+          if (
+            r.status === "present" ||
+            r.status === "absent" ||
+            r.status === "late" ||
+            r.status === "leave" ||
+            r.status === "no_session"
+          ) {
             next[r.studentId] = r.status;
+            if (r.note) notes[r.studentId] = r.note;
           }
         }
         setMarks(next);
+        setNotesByStudent(notes);
+        setDayClosure(
+          res.closure
+            ? { title: res.closure.title, reason: res.closure.reason || "" }
+            : null
+        );
       })
-      .catch(() => setMarks({}));
+      .catch(() => {
+        setMarks({});
+        setNotesByStudent({});
+        setDayClosure(null);
+      });
   }, [date, activeBatch]);
 
-  const overdue = students.filter((s) => s.feeStatus !== "paid");
+  const isHeadCoach = Boolean(data?.isHeadCoach || data?.coach?.isHeadCoach || data?.canViewFees);
+  const overdue = isHeadCoach ? students.filter((s) => s.feeStatus !== "paid") : [];
   const lowAtt = students.filter((s) => s.attendancePct > 0 && s.attendancePct < 70);
   const avgAtt = students.length
     ? Math.round(students.reduce((a, s) => a + s.attendancePct, 0) / students.length)
     : 0;
   const overdueAmount = overdue.reduce((a, s) => a + s.feeAmount, 0);
+  const feePackages = data?.feePackages ?? [];
+  const closures = data?.closures ?? [];
 
   const filteredStudents = useMemo(() => {
     if (studentFilter === "overdue") return overdue;
@@ -162,8 +196,16 @@ export default function CoachHome() {
 
   const saveAttendance = async () => {
     const payload = batchStudents
-      .map((s) => ({ studentId: s.id, status: marks[s.id] }))
-      .filter((m): m is { studentId: string; status: AttendanceMark } => !!m.status && m.status !== "none");
+      .map((s) => ({
+        studentId: s.id,
+        status: marks[s.id],
+        note: notesByStudent[s.id] || undefined,
+      }))
+      .filter((m) => !!m.status && m.status !== "none") as {
+        studentId: string;
+        status: AttendanceMark;
+        note?: string;
+      }[];
     if (!payload.length) {
       toast.error("Mark at least one student");
       return;
@@ -171,20 +213,63 @@ export default function CoachHome() {
     setSaving(true);
     try {
       await api.coachSaveAttendance({ date, batchId: activeBatch, marks: payload });
-      toast.success(`Saved ${payload.length} marks`);
-      const rows = await api.listAttendance({ date, batchId: activeBatch });
+      toast.success(`Saved ${payload.length} marks — you can edit anytime`);
+      const res = await api.coachListAttendance({ date, batchId: activeBatch });
       const next: Record<string, AttendanceMark> = {};
-      for (const r of rows) {
-        if (r.status === "present" || r.status === "absent" || r.status === "late") {
+      const notes: Record<string, string> = {};
+      for (const r of res.marks) {
+        if (
+          r.status === "present" ||
+          r.status === "absent" ||
+          r.status === "late" ||
+          r.status === "leave" ||
+          r.status === "no_session"
+        ) {
           next[r.studentId] = r.status;
+          if (r.note) notes[r.studentId] = r.note;
         }
       }
       setMarks(next);
+      setNotesByStudent(notes);
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveClosure = async () => {
+    if (!closureForm.title.trim()) {
+      toast.error("Enter a title for the closure / holiday");
+      return;
+    }
+    setClosureBusy(true);
+    try {
+      await api.coachCreateClosure({
+        date: closureForm.date,
+        title: closureForm.title.trim(),
+        reason: closureForm.reason.trim() || undefined,
+        type: closureForm.type,
+        scope: "academy",
+      });
+      toast.success("No-session day published — parents & coaches will see it on calendars");
+      setClosureForm((f) => ({ ...f, title: "", reason: "" }));
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save closure");
+    } finally {
+      setClosureBusy(false);
+    }
+  };
+
+  const removeClosure = async (id: string) => {
+    try {
+      await api.coachDeleteClosure(id);
+      toast.success("Closure removed");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
@@ -197,7 +282,9 @@ export default function CoachHome() {
     { id: "home", label: "Dashboard", shortLabel: "Home", icon: <Home className="h-4 w-4" /> },
     { id: "students", label: "Players", shortLabel: "Players", icon: <Users className="h-4 w-4" /> },
     { id: "attendance", label: "Attendance", shortLabel: "Attend.", icon: <Calendar className="h-4 w-4" /> },
-    { id: "fees", label: "Fee Status", shortLabel: "Fees", icon: <CreditCard className="h-4 w-4" /> },
+    ...(isHeadCoach
+      ? [{ id: "fees", label: "Fee structures", shortLabel: "Fees", icon: <CreditCard className="h-4 w-4" /> }]
+      : []),
     { id: "assess", label: "Assessments", shortLabel: "Assess", icon: <Award className="h-4 w-4" /> },
   ];
 
@@ -381,7 +468,7 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Attendance"
-                description="Mark present, late, or absent for today's session."
+                description="Load a past date to edit logged marks. Leave & no-session include parent-facing reasons."
                 actions={
                   <Button
                     className="bg-primary text-primary-foreground"
@@ -415,54 +502,156 @@ export default function CoachHome() {
                 </div>
               </div>
 
+              {dayClosure && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                  <p className="font-medium">No session — {dayClosure.title}</p>
+                  {dayClosure.reason ? <p className="text-xs text-muted-foreground mt-0.5">{dayClosure.reason}</p> : null}
+                </div>
+              )}
+
               <div className="rounded-2xl border border-border bg-card overflow-hidden">
                 <div className="p-5 border-b border-border">
-                  <h3 className="font-display font-semibold">Roster</h3>
-                  <p className="text-xs text-muted-foreground">{batchStudents.length} students</p>
+                  <h3 className="font-display font-semibold">Roster — edit logged marks anytime</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {batchStudents.length} students · P Present · L Late · A Absent · Lv Leave · NS No session
+                  </p>
                 </div>
                 <div className="divide-y divide-border">
                   {batchStudents.length === 0 ? (
                     <p className="px-5 py-8 text-sm text-muted-foreground text-center">No students in this batch.</p>
                   ) : (
                     batchStudents.map((s) => (
-                      <div key={s.id} className="px-5 py-4 flex items-center justify-between gap-2 hover:bg-muted/20 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>
-                            {initialsOf(s.name)}
+                      <div key={s.id} className="px-5 py-4 space-y-2 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>
+                              {initialsOf(s.name)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{s.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{s.role || "Player"}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{s.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{s.role || "Player"}</p>
+                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
+                            {MARKS.map((m) => (
+                              <button
+                                key={m.value}
+                                type="button"
+                                title={m.title}
+                                onClick={() => setMarks((prev) => ({ ...prev, [s.id]: m.value }))}
+                                className={cn(
+                                  "h-9 min-w-9 px-1.5 rounded-lg text-[11px] font-semibold border",
+                                  marks[s.id] === m.value
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "border-border text-muted-foreground hover:bg-muted/30"
+                                )}
+                              >
+                                {m.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
-                        <div className="flex gap-1.5 shrink-0">
-                          {MARKS.map((m) => (
-                            <button
-                              key={m.value}
-                              type="button"
-                              onClick={() => setMarks((prev) => ({ ...prev, [s.id]: m.value }))}
-                              className={cn(
-                                "h-9 w-9 rounded-lg text-xs font-semibold border",
-                                marks[s.id] === m.value
-                                  ? "bg-primary text-primary-foreground border-primary"
-                                  : "border-border text-muted-foreground hover:bg-muted/30"
-                              )}
-                            >
-                              {m.label}
-                            </button>
-                          ))}
-                        </div>
+                        {(marks[s.id] === "leave" || marks[s.id] === "no_session") && (
+                          <Input
+                            className="h-8 text-xs"
+                            placeholder="Reason / leave note for parents"
+                            value={notesByStudent[s.id] || ""}
+                            onChange={(e) =>
+                              setNotesByStudent((prev) => ({ ...prev, [s.id]: e.target.value }))
+                            }
+                          />
+                        )}
                       </div>
                     ))
                   )}
                 </div>
               </div>
+
+              {isHeadCoach && (
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+                  <h3 className="font-display font-semibold">Declare academy no-session / holiday</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Head coach only — parents and all coaches see this on calendars.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Date</label>
+                      <input
+                        type="date"
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={closureForm.date}
+                        onChange={(e) => setClosureForm((f) => ({ ...f, date: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Type</label>
+                      <Select value={closureForm.type} onValueChange={(v) => setClosureForm((f) => ({ ...f, type: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="holiday">Holiday</SelectItem>
+                          <SelectItem value="closure">Academy closure</SelectItem>
+                          <SelectItem value="rain">Rain / weather</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <Input
+                    placeholder="Title (e.g. Independence Day / Ground closed)"
+                    value={closureForm.title}
+                    onChange={(e) => setClosureForm((f) => ({ ...f, title: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Reason shown to parents"
+                    value={closureForm.reason}
+                    onChange={(e) => setClosureForm((f) => ({ ...f, reason: e.target.value }))}
+                  />
+                  <Button
+                    className="bg-primary text-primary-foreground"
+                    disabled={closureBusy}
+                    onClick={() => void saveClosure()}
+                  >
+                    {closureBusy ? "Saving…" : "Publish no-session day"}
+                  </Button>
+                  {closures.length > 0 && (
+                    <div className="pt-2 space-y-2">
+                      {closures.slice(0, 8).map((c) => (
+                        <div key={c.id} className="flex items-center justify-between gap-2 text-sm border border-border rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{c.date} · {c.title}</p>
+                            {c.reason ? <p className="text-xs text-muted-foreground truncate">{c.reason}</p> : null}
+                          </div>
+                          <Button size="sm" variant="outline" className="text-destructive shrink-0" onClick={() => void removeClosure(c.id)}>
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {tab === "fees" && (
+          {tab === "fees" && isHeadCoach && (
             <div className="space-y-6">
-              <PageHeader title="Fee Status" description="Fee overview for players in your batches." />
+              <PageHeader
+                title="Fee structures"
+                description="Head coach only — 1 / 3 / 6 / 12 month packages with distinct amounts. Other coaches cannot see this."
+              />
+              <div className="grid sm:grid-cols-2 gap-3">
+                {feePackages.map((p) => (
+                  <div key={p.id} className="rounded-2xl border border-border bg-card p-5">
+                    <p className="font-display font-semibold">{p.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{p.description || `${p.months} months`}</p>
+                    <p className="mt-3 text-sm">
+                      <span className="font-medium">{inr(p.monthlyAmount)}</span>
+                      <span className="text-muted-foreground"> / month · {p.months} mo</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">Total {inr(p.totalAmount)}</p>
+                  </div>
+                ))}
+              </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <StatCard label="Overdue players" value={String(overdue.length)} icon={<AlertTriangle className="h-4 w-4" />} tone={overdue.length ? "danger" : "success"} />
                 <StatCard label="Amount pending" value={inr(overdueAmount)} icon={<CreditCard className="h-4 w-4" />} tone={overdueAmount ? "danger" : "success"} />

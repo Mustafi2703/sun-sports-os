@@ -23,12 +23,22 @@ export const StudentDetailModal = ({
   const student = studentId ? students.find((s) => s.id === studentId) ?? null : null;
   const [grid, setGrid] = useState<AttendanceGridDay[]>([]);
   const [payments, setPayments] = useState<FeePayment[]>([]);
+  const [enrollment, setEnrollment] = useState<{
+    packageName?: string;
+    startMonth?: string;
+    endMonth?: string;
+    months?: number;
+    monthlyAmount?: number;
+    paidCount?: number;
+    dueCount?: number;
+  } | null>(null);
   const [loadingExtra, setLoadingExtra] = useState(false);
 
   useEffect(() => {
     if (!studentId) {
       setGrid([]);
       setPayments([]);
+      setEnrollment(null);
       return;
     }
     let cancelled = false;
@@ -36,11 +46,13 @@ export const StudentDetailModal = ({
     Promise.all([
       api.attendanceGrid(studentId, 30).catch(() => ({ grid: [] as AttendanceGridDay[] })),
       api.listPayments(studentId).catch(() => [] as FeePayment[]),
+      api.listFeeEnrollments({ studentId, status: "active" }).catch(() => []),
     ])
-      .then(([g, p]) => {
+      .then(([g, p, enrollments]) => {
         if (cancelled) return;
         setGrid(g.grid || []);
         setPayments(p || []);
+        setEnrollment((enrollments[0] as typeof enrollment) || null);
       })
       .finally(() => {
         if (!cancelled) setLoadingExtra(false);
@@ -113,7 +125,24 @@ export const StudentDetailModal = ({
 
             <div className="grid md:grid-cols-2 gap-5 pt-2">
               <section>
-                <h3 className="font-display font-semibold mb-3">Fee payments</h3>
+                <h3 className="font-display font-semibold mb-3">Fee plan & payments</h3>
+                {enrollment && (
+                  <div className="mb-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs space-y-0.5">
+                    <p className="font-medium text-sm">{enrollment.packageName || "Active plan"}</p>
+                    <p className="text-muted-foreground">
+                      {enrollment.startMonth} → {enrollment.endMonth}
+                      {enrollment.months ? ` · ${enrollment.months} months` : ""}
+                      {enrollment.monthlyAmount != null
+                        ? ` · ${inr(enrollment.monthlyAmount)}/mo`
+                        : ""}
+                    </p>
+                    {(enrollment.paidCount != null || enrollment.dueCount != null) && (
+                      <p className="text-muted-foreground">
+                        Paid {enrollment.paidCount ?? 0} · Remaining {enrollment.dueCount ?? 0}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {loadingExtra ? (
                   <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
                 ) : payments.length === 0 ? (

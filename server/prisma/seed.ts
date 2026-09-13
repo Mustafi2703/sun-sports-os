@@ -58,6 +58,7 @@ async function main() {
           name: c.name,
           phone: formatPhone(c.phone),
           specialty: c.specialty,
+          isHeadCoach: c.specialty === "Head Coach",
           initials: c.name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase(),
         },
       })

@@ -8,7 +8,14 @@ export async function recomputeAttendancePct(studentId: string) {
     return 0;
   }
   const attended = records.filter((r) => r.status === "present" || r.status === "late").length;
-  const pct = Math.round((attended / records.length) * 100);
+  const counted = records.filter(
+    (r) => r.status === "present" || r.status === "late" || r.status === "absent" || r.status === "leave"
+  ).length;
+  if (!counted) {
+    await prisma.student.update({ where: { id: studentId }, data: { attendancePct: 0 } });
+    return 0;
+  }
+  const pct = Math.round((attended / counted) * 100);
   await prisma.student.update({ where: { id: studentId }, data: { attendancePct: pct } });
   return pct;
 }
@@ -17,26 +24,83 @@ export async function recomputeAttendancePctMany(studentIds: string[]) {
   await Promise.all([...new Set(studentIds)].map((id) => recomputeAttendancePct(id)));
 }
 
-/** Last N calendar days for a student — real DB marks only (none = no session recorded). */
+/** Last N calendar days for a student — real DB marks + academy closures. */
 export async function attendanceGrid(studentId: string, days = 30) {
   const end = new Date();
   end.setHours(0, 0, 0, 0);
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
 
-  const records = await prisma.attendanceRecord.findMany({
-    where: { studentId, date: { gte: start, lte: end } },
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: { batchId: true },
   });
+
+  const [records, closures] = await Promise.all([
+    prisma.attendanceRecord.findMany({
+      where: { studentId, date: { gte: start, lte: end } },
+    }),
+    prisma.academyClosure.findMany({
+      where: {
+        date: { gte: start, lte: end },
+        OR: [
+          { scope: "academy" },
+          ...(student?.batchId
+            ? [{ scope: "batch" as const, batchId: student.batchId }]
+            : []),
+        ],
+      },
+    }),
+  ]);
+
   const byDay = new Map(
-    records.map((r) => [r.date.toISOString().slice(0, 10), r.status as "present" | "absent" | "late"])
+    records.map((r) => [
+      r.date.toISOString().slice(0, 10),
+      {
+        status: r.status as "present" | "absent" | "late" | "leave" | "no_session",
+        note: r.note || "",
+      },
+    ])
+  );
+  const closureByDay = new Map(
+    closures.map((c) => [
+      c.date.toISOString().slice(0, 10),
+      { title: c.title, reason: c.reason || "", type: c.type },
+    ])
   );
 
-  const grid: { date: string; status: "present" | "absent" | "late" | "none" }[] = [];
+  const grid: {
+    date: string;
+    status: "present" | "absent" | "late" | "leave" | "no_session" | "none";
+    note?: string;
+    closureTitle?: string;
+    closureReason?: string;
+  }[] = [];
   for (let i = 0; i < days; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     const key = d.toISOString().slice(0, 10);
-    grid.push({ date: key, status: byDay.get(key) ?? "none" });
+    const mark = byDay.get(key);
+    const closure = closureByDay.get(key);
+    if (closure && (!mark || mark.status === "no_session")) {
+      grid.push({
+        date: key,
+        status: "no_session",
+        note: mark?.note || "",
+        closureTitle: closure.title,
+        closureReason: closure.reason,
+      });
+    } else if (mark) {
+      grid.push({
+        date: key,
+        status: mark.status,
+        note: mark.note,
+        closureTitle: closure?.title,
+        closureReason: closure?.reason,
+      });
+    } else {
+      grid.push({ date: key, status: "none" });
+    }
   }
   return grid;
 }

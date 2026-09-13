@@ -156,7 +156,9 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
             </div>
           </div>
 
-          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-[100vw] overflow-x-hidden">{children}</div>
+          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-[100vw] overflow-x-hidden pb-24 lg:pb-8">
+            {children}
+          </div>
         </main>
       </div>
 

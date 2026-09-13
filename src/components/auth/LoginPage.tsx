@@ -46,13 +46,13 @@ const THEMES: Record<Portal, PortalTheme> = {
     eyebrow: "For parents & guardians",
     subtitle: "Stay on top of fees, attendance, coach feedback, and your child’s progress — from your phone.",
     home: "/parent",
-    hint: "Only the WhatsApp number already on your child’s Sun Sports profile can sign in.",
+    hint: "Sign in with the WhatsApp number already on your child’s Sun Sports profile.",
     cta: "Enter parent portal",
     accent: "from-emerald-500/25 via-sky-500/10 to-transparent",
     accentSoft: "bg-sky-500/15 text-sky-300 border-sky-500/25",
     modules: [
       { icon: CreditCard, title: "Fee Management", desc: "Dues, reminders, and payment history" },
-      { icon: CalendarCheck, title: "Attendance", desc: "Present, late, and absent calendar" },
+      { icon: CalendarCheck, title: "Attendance", desc: "Present, late, leave & holidays" },
       { icon: TrendingUp, title: "Performance", desc: "Batting, bowling, fielding & fitness" },
       { icon: StickyNote, title: "Coach notes", desc: "Feedback as soon as coaches post it" },
       { icon: User, title: "Profile", desc: "Batch, coach, and student details" },
@@ -61,17 +61,16 @@ const THEMES: Record<Portal, PortalTheme> = {
   coach: {
     title: "Coach Portal",
     eyebrow: "For coaches",
-    subtitle: "Run your batches — mark attendance, check fee status, score players, and leave notes.",
+    subtitle: "Run your batches — mark attendance, score players, and leave notes.",
     home: "/coach",
-    hint: "Only coach mobiles added by the academy in Settings can sign in.",
+    hint: "Sign in with the mobile number registered for your coach profile.",
     cta: "Enter coach portal",
     accent: "from-primary/30 via-emerald-600/10 to-transparent",
     accentSoft: "bg-primary/15 text-primary border-primary/25",
     modules: [
       { icon: Home, title: "Dashboard", desc: "Today’s batch overview at a glance" },
       { icon: Users, title: "Players", desc: "Students assigned to your batches" },
-      { icon: CalendarCheck, title: "Attendance", desc: "Mark present, late, or absent" },
-      { icon: CreditCard, title: "Fee Status", desc: "See who is paid or overdue" },
+      { icon: CalendarCheck, title: "Attendance", desc: "Mark and edit session logs" },
       { icon: Award, title: "Assessments", desc: "Scores and performance notes" },
     ],
   },
@@ -88,8 +87,8 @@ const THEMES: Record<Portal, PortalTheme> = {
       { icon: Home, title: "Dashboard", desc: "Ops snapshot and alerts" },
       { icon: Users, title: "Students", desc: "Roster and profiles" },
       { icon: Layers, title: "Batches", desc: "Groups and coach assignments" },
-      { icon: CreditCard, title: "Fees", desc: "Collections and overdue tracking" },
-      { icon: CalendarCheck, title: "Attendance", desc: "Academy-wide session logs" },
+      { icon: CreditCard, title: "Fees", desc: "Packages, dues, and collections" },
+      { icon: CalendarCheck, title: "Attendance", desc: "Sessions and holidays" },
       { icon: TrendingUp, title: "Performance", desc: "Scorecards across batches" },
       { icon: MessageCircle, title: "Communications", desc: "Parent outreach" },
       { icon: Trophy, title: "Tournaments", desc: "Events and registrations" },
@@ -117,16 +116,16 @@ export function LoginPage({ portal }: { portal: Portal }) {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [pin, setPin] = useState("");
-  const [mode, setMode] = useState<"otp" | "pin">("otp");
+  /** PIN (mobile + password) is primary; OTP ready when SMS is connected */
+  const [mode, setMode] = useState<"otp" | "pin">("pin");
   const [otpSent, setOtpSent] = useState(false);
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [pinAllowed, setPinAllowed] = useState(true);
+  const [otpAllowed, setOtpAllowed] = useState(true);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [demos, setDemos] = useState<{ phone: string; name: string }[]>([]);
-  const [demoPin, setDemoPin] = useState("1234");
 
   useEffect(() => {
     void api
@@ -134,17 +133,10 @@ export function LoginPage({ portal }: { portal: Portal }) {
       .then((m) => {
         setSmsConfigured(m.smsConfigured);
         setPinAllowed(m.pin);
-        if (!m.otp && m.pin) setMode("pin");
-      })
-      .catch(() => undefined);
-
-    void api
-      .demoAccounts()
-      .then((d) => {
-        setDemoPin(d.pin || "1234");
-        if (portal === "admin") setDemos(d.admin ? [d.admin] : []);
-        else if (portal === "coach") setDemos(d.coaches || []);
-        else setDemos((d.parents || []).slice(0, 8));
+        setOtpAllowed(m.otp);
+        // Prefer PIN until live SMS is connected
+        if (m.pin) setMode("pin");
+        else if (m.otp) setMode("otp");
       })
       .catch(() => undefined);
   }, [portal]);
@@ -201,7 +193,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
         await loginWithOtp(portal, normalized, otp.trim());
       } else {
         if (!pin.trim()) {
-          setError("PIN required");
+          setError("Enter your PIN");
           setSubmitting(false);
           return;
         }
@@ -215,34 +207,38 @@ export function LoginPage({ portal }: { portal: Portal }) {
     }
   };
 
+  const showModeToggle = pinAllowed && otpAllowed;
+
   return (
     <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
       <div className={cn("absolute inset-0 bg-gradient-to-br pointer-events-none", theme.accent)} aria-hidden />
       <div className="absolute inset-0 gradient-hero opacity-70 pointer-events-none" aria-hidden />
 
       <div className="relative mx-auto flex min-h-[100dvh] max-w-6xl flex-col lg:flex-row lg:items-stretch">
-        <section className="flex flex-1 flex-col justify-center px-5 py-10 sm:px-8 lg:px-12 lg:py-16">
-          <Link to="/" className="mb-8 w-fit">
+        {/* Brand column — compact on mobile so sign-in is visible first */}
+        <section className="order-2 lg:order-1 flex flex-1 flex-col justify-center px-4 py-6 sm:px-8 lg:px-12 lg:py-16">
+          <Link to="/" className="mb-4 lg:mb-8 w-fit hidden lg:block">
             <Logo />
           </Link>
           <p
             className={cn(
-              "inline-flex w-fit text-[11px] uppercase tracking-wider rounded-full border px-3 py-1 mb-4",
+              "hidden lg:inline-flex w-fit text-[11px] uppercase tracking-wider rounded-full border px-3 py-1 mb-4",
               theme.accentSoft
             )}
           >
             {theme.eyebrow}
           </p>
-          <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-balance">
+          <h1 className="hidden lg:block font-display text-3xl sm:text-4xl font-bold tracking-tight text-balance">
             {theme.title}
           </h1>
-          <p className="mt-3 max-w-md text-sm sm:text-base text-muted-foreground leading-relaxed">
+          <p className="hidden lg:block mt-3 max-w-md text-sm sm:text-base text-muted-foreground leading-relaxed">
             {theme.subtitle}
           </p>
 
           <div
             className={cn(
-              "mt-8 grid gap-3",
+              "mt-4 lg:mt-8 grid gap-2.5 sm:gap-3",
+              "hidden sm:grid",
               portal === "admin" ? "sm:grid-cols-2" : "sm:grid-cols-1 max-w-md"
             )}
           >
@@ -260,19 +256,37 @@ export function LoginPage({ portal }: { portal: Portal }) {
           </div>
         </section>
 
-        <section className="flex flex-1 items-center justify-center px-4 pb-10 pt-2 sm:px-8 lg:px-10 lg:py-16 safe-pb">
-          <div className="w-full max-w-md surface-elevated rounded-2xl sm:rounded-3xl p-6 sm:p-8 space-y-5">
-            <div className="space-y-1">
-              <h2 className="font-display text-xl font-bold">Sign in</h2>
-              <p className="text-sm text-muted-foreground">{theme.hint}</p>
+        <section className="order-1 lg:order-2 flex flex-1 items-start sm:items-center justify-center px-4 pt-6 pb-4 sm:px-8 lg:px-10 lg:py-16 safe-pb">
+          <div className="w-full max-w-md surface-elevated rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-4 sm:space-y-5">
+            <div className="flex items-center justify-between gap-3 lg:block">
+              <Link to="/" className="lg:hidden shrink-0">
+                <Logo />
+              </Link>
+              <div className="space-y-1 min-w-0 text-right lg:text-left">
+                <h2 className="font-display text-lg sm:text-xl font-bold">{theme.title}</h2>
+                <p className="text-xs sm:text-sm text-muted-foreground text-pretty">{theme.hint}</p>
+              </div>
             </div>
 
-            {pinAllowed && (
+            {showModeToggle && (
               <div className="flex gap-1 p-1 rounded-xl bg-muted/40 border border-border/60">
                 <button
                   type="button"
                   className={cn(
-                    "flex-1 text-xs py-2 rounded-lg transition-colors",
+                    "flex-1 text-xs py-2.5 rounded-lg transition-colors min-h-[44px]",
+                    mode === "pin" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
+                  )}
+                  onClick={() => {
+                    setMode("pin");
+                    setError("");
+                  }}
+                >
+                  Mobile + PIN
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 text-xs py-2.5 rounded-lg transition-colors min-h-[44px]",
                     mode === "otp" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
                   )}
                   onClick={() => {
@@ -282,27 +296,14 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 >
                   Phone OTP
                 </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 text-xs py-2 rounded-lg transition-colors",
-                    mode === "pin" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
-                  )}
-                  onClick={() => {
-                    setMode("pin");
-                    setError("");
-                  }}
-                >
-                  PIN
-                </button>
               </div>
             )}
 
-            <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+            <form onSubmit={(e) => void onSubmit(e)} className="space-y-3.5 sm:space-y-4">
               <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Phone</label>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
                 <Input
-                  className="h-11 bg-background/50 border-border/80"
+                  className="h-12 text-base bg-background/50 border-border/80"
                   inputMode="tel"
                   autoComplete="tel"
                   placeholder="10-digit mobile"
@@ -322,7 +323,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                     <div>
                       <label className="text-xs text-muted-foreground mb-1.5 block">OTP</label>
                       <Input
-                        className="h-11 bg-background/50 border-border/80 tracking-[0.3em] text-center text-lg"
+                        className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em] text-center"
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         placeholder="6-digit code"
@@ -335,13 +336,13 @@ export function LoginPage({ portal }: { portal: Portal }) {
                   )}
                   {devOtp && (
                     <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
-                      SMS not configured yet — use code <span className="font-mono font-semibold">{devOtp}</span>
+                      SMS not live yet — use code <span className="font-mono font-semibold">{devOtp}</span>
                     </p>
                   )}
                   {info && !devOtp && <p className="text-xs text-muted-foreground">{info}</p>}
                   {!smsConfigured && !devOtp && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Live SMS uses MSG91 or Twilio on the API. Until then, OTP appears on-screen after Send.
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      OTP SMS will be connected later. Prefer <span className="text-foreground">Mobile + PIN</span> for now.
                     </p>
                   )}
                 </>
@@ -349,7 +350,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 <div>
                   <label className="text-xs text-muted-foreground mb-1.5 block">PIN</label>
                   <Input
-                    className="h-11 bg-background/50 border-border/80"
+                    className="h-12 text-base bg-background/50 border-border/80"
                     type="password"
                     inputMode="numeric"
                     autoComplete="current-password"
@@ -364,11 +365,11 @@ export function LoginPage({ portal }: { portal: Portal }) {
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 pt-1">
                 {mode === "otp" && !otpSent ? (
                   <Button
                     type="button"
-                    className="w-full h-11 bg-primary text-primary-foreground shadow-glow"
+                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
                     disabled={submitting}
                     onClick={() => void sendOtp()}
                   >
@@ -377,7 +378,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 ) : (
                   <Button
                     type="submit"
-                    className="w-full h-11 bg-primary text-primary-foreground shadow-glow"
+                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
                     disabled={submitting}
                   >
                     {submitting ? "Signing in…" : theme.cta}
@@ -387,7 +388,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="w-full h-9 text-xs"
+                    className="w-full h-10 text-xs"
                     disabled={submitting}
                     onClick={() => void sendOtp()}
                   >
@@ -397,44 +398,14 @@ export function LoginPage({ portal }: { portal: Portal }) {
               </div>
             </form>
 
-            {mode === "pin" && (
-              <p className="text-xs text-muted-foreground text-center">
-                Backup PIN: <span className="text-foreground font-medium">{demoPin}</span>
-              </p>
-            )}
-
-            {demos.length > 0 && (
-              <div className="surface-soft rounded-xl p-3 space-y-2">
-                <p className="text-[11px] font-medium text-muted-foreground">Quick fill (demo)</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {demos.map((d) => (
-                    <button
-                      key={d.phone}
-                      type="button"
-                      className="text-[11px] px-2.5 py-1.5 rounded-lg border border-border/80 bg-background/40 hover:bg-primary/10 hover:border-primary/30 text-left transition-colors"
-                      onClick={() => {
-                        setPhone(d.phone);
-                        setPin(demoPin);
-                        setOtpSent(false);
-                        setDevOtp(null);
-                        setError("");
-                      }}
-                    >
-                      {d.name.split(" ")[0]} · {d.phone}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <div className="pt-1 border-t border-border/60">
               <p className="text-[11px] text-muted-foreground text-center mb-2">Other portals</p>
-              <div className="flex justify-center gap-2">
+              <div className="flex justify-center gap-2 flex-wrap">
                 {OTHER_PORTALS.filter((p) => p.portal !== portal).map((p) => (
                   <Link
                     key={p.path}
                     to={p.path}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-border/70 hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                    className="text-xs px-3 py-2 min-h-[40px] inline-flex items-center rounded-lg border border-border/70 hover:border-primary/40 hover:bg-primary/5 transition-colors"
                   >
                     {p.label}
                   </Link>

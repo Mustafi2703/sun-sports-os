@@ -20,6 +20,7 @@ const emptyForm = () => ({
   email: "",
   salaryMonthly: "0",
   status: "active",
+  isHeadCoach: false,
   joinDate: new Date().toISOString().slice(0, 10),
   notes: "",
 });
@@ -56,6 +57,7 @@ const CoachesPage = () => {
             salaryMonthly: String(c.salaryMonthly ?? 0),
             status: c.status || "active",
             joinDate: c.joinDate || new Date().toISOString().slice(0, 10),
+            isHeadCoach: Boolean(c.isHeadCoach),
             notes: c.notes || "",
           }
         : emptyForm()
@@ -77,6 +79,7 @@ const CoachesPage = () => {
         salaryMonthly: Number(form.salaryMonthly) || 0,
         status: form.status,
         joinDate: form.joinDate || undefined,
+        isHeadCoach: form.isHeadCoach,
         notes: form.notes || undefined,
       };
       if (edit) await api.updateCoach(edit.id, body);
@@ -243,7 +246,15 @@ const CoachesPage = () => {
               <Textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
-          <DialogFooter>
+          <label className="flex items-center gap-2 text-sm cursor-pointer py-1">
+              <input
+                type="checkbox"
+                checked={form.isHeadCoach}
+                onChange={(e) => setForm((f) => ({ ...f, isHeadCoach: e.target.checked }))}
+              />
+              Head coach — can view fee structures & declare academy closures
+            </label>
+        <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(undefined)}>Cancel</Button>
             <Button className="bg-primary text-primary-foreground" disabled={busy} onClick={() => void save()}>
               {busy ? "Saving…" : "Save"}

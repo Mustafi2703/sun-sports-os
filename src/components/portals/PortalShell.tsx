@@ -57,7 +57,7 @@ export function PortalShell({
     roleLabel ||
     (activeRole === "parent" ? "Parent" : activeRole === "coach" ? "Coach" : "Portal");
   const activeLabel = tabs?.find((t) => t.id === activeTab)?.label ?? title;
-  const mobileTabs = (tabs ?? []).slice(0, 5);
+  const mobileTabs = tabs ?? [];
 
   return (
     <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
@@ -195,24 +195,23 @@ export function PortalShell({
             </div>
           </div>
 
-          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-[100vw] overflow-x-hidden">{children}</div>
+          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-[100vw] overflow-x-hidden pb-24 lg:pb-8">
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav — scrollable so all tabs stay visible */}
       {mobileTabs.length > 0 && (
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border/70 bg-card/90 backdrop-blur-md safe-pb safe-px">
-          <ul
-            className="grid"
-            style={{ gridTemplateColumns: `repeat(${mobileTabs.length}, 1fr)` }}
-          >
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border/70 bg-card/90 backdrop-blur-md safe-pb">
+          <ul className="flex overflow-x-auto scrollbar-none snap-x snap-mandatory gap-0.5 px-1">
             {mobileTabs.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="snap-start shrink-0 min-w-[4.25rem] max-w-[5.5rem] flex-1">
                 <button
                   type="button"
                   onClick={() => onTabChange?.(t.id)}
                   className={cn(
-                    "w-full flex flex-col items-center justify-center gap-0.5 min-h-[56px] py-2 px-0.5",
+                    "w-full flex flex-col items-center justify-center gap-0.5 min-h-[56px] py-2 px-1",
                     activeTab === t.id ? "text-primary" : "text-muted-foreground"
                   )}
                 >

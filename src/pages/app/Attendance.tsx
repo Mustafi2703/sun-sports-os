@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Calendar, Check, X, Clock, MessageCircle, Save } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAcademy } from "@/context/AcademyContext";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Mark = "present" | "absent" | "late";
+type Mark = "present" | "absent" | "late" | "leave" | "no_session";
 
 const Attendance = () => {
   const { batches, students, getBatch, attendanceByBatch, initialsOf, initialsColor, api, refresh } = useAcademy();
@@ -17,6 +19,13 @@ const Attendance = () => {
   const [batchId, setBatchId] = useState("");
   const [marks, setMarks] = useState<Record<string, Mark>>({});
   const [loadingMarks, setLoadingMarks] = useState(false);
+  const [closures, setClosures] = useState<{ id: string; date: string; title: string; reason: string; type: string }[]>([]);
+  const [closureForm, setClosureForm] = useState({ date: today, title: "", reason: "", type: "holiday" });
+  const [closureBusy, setClosureBusy] = useState(false);
+
+  useEffect(() => {
+    void api.listClosures().then(setClosures).catch(() => setClosures([]));
+  }, [api]);
 
   useEffect(() => {
     if (!batchId && batches[0]?.id) setBatchId(batches[0].id);
@@ -31,7 +40,7 @@ const Attendance = () => {
       .then((rows) => {
         const next: Record<string, Mark> = {};
         for (const r of rows) {
-          if (r.status === "present" || r.status === "absent" || r.status === "late") {
+          if (r.status === "present" || r.status === "absent" || r.status === "late" || r.status === "leave" || r.status === "no_session") {
             next[r.studentId] = r.status;
           }
         }
@@ -74,7 +83,55 @@ const Attendance = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Attendance" description="Mark sessions — saved to the database. Calendars and % update from real records only." />
+      <PageHeader title="Attendance" description="Mark or edit logged sessions. Leave / no-session and academy holidays appear on parent calendars." />
+
+      <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <h3 className="font-display font-semibold">Academy holidays / no-session days</h3>
+        <p className="text-xs text-muted-foreground">Shown on parent & coach calendars for holiday understanding.</p>
+        <div className="grid sm:grid-cols-4 gap-2">
+          <input type="date" value={closureForm.date} onChange={(e) => setClosureForm((f) => ({ ...f, date: e.target.value }))} className="h-10 rounded-md border border-border bg-background px-3 text-sm" />
+          <Input placeholder="Title" value={closureForm.title} onChange={(e) => setClosureForm((f) => ({ ...f, title: e.target.value }))} />
+          <Input placeholder="Reason for parents" value={closureForm.reason} onChange={(e) => setClosureForm((f) => ({ ...f, reason: e.target.value }))} />
+          <Button
+            className="bg-primary text-primary-foreground"
+            disabled={closureBusy || !closureForm.title.trim()}
+            onClick={async () => {
+              setClosureBusy(true);
+              try {
+                await api.createClosure({ ...closureForm, title: closureForm.title.trim(), reason: closureForm.reason || undefined, scope: "academy" });
+                toast.success("No-session day published");
+                setClosureForm((f) => ({ ...f, title: "", reason: "" }));
+                setClosures(await api.listClosures());
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Failed");
+              } finally {
+                setClosureBusy(false);
+              }
+            }}
+          >
+            Publish
+          </Button>
+        </div>
+        {closures.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {closures.slice(0, 12).map((c) => (
+              <Badge key={c.id} variant="outline" className="gap-2">
+                {c.date}: {c.title}
+                <button
+                  type="button"
+                  className="text-destructive"
+                  onClick={async () => {
+                    await api.deleteClosure(c.id);
+                    setClosures(await api.listClosures());
+                  }}
+                >
+                  ×
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
         <div className="flex-1">
@@ -127,6 +184,18 @@ const Attendance = () => {
                     <MarkBtn active={m === "present"} tone="success" onClick={() => set(s.id, "present")}><Check className="h-4 w-4" /></MarkBtn>
                     <MarkBtn active={m === "late"} tone="warning" onClick={() => set(s.id, "late")}><Clock className="h-4 w-4" /></MarkBtn>
                     <MarkBtn active={m === "absent"} tone="danger" onClick={() => set(s.id, "absent")}><X className="h-4 w-4" /></MarkBtn>
+                    <button
+                      type="button"
+                      title="Leave"
+                      onClick={() => set(s.id, "leave")}
+                      className={cn("h-9 px-2 rounded-lg text-[10px] font-semibold border", m === "leave" ? "bg-blue-500 text-white border-blue-500" : "border-border text-muted-foreground")}
+                    >Lv</button>
+                    <button
+                      type="button"
+                      title="No session"
+                      onClick={() => set(s.id, "no_session")}
+                      className={cn("h-9 px-2 rounded-lg text-[10px] font-semibold border", m === "no_session" ? "bg-slate-500 text-white border-slate-500" : "border-border text-muted-foreground")}
+                    >NS</button>
                   </div>
                 </div>
               );

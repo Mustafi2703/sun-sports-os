@@ -1,5 +1,5 @@
 export type FeeStatus = "paid" | "overdue1" | "overdue8";
-export type AttendanceMark = "present" | "absent" | "late" | "none";
+export type AttendanceMark = "present" | "absent" | "late" | "leave" | "no_session" | "none";
 export type Portal = "parent" | "coach" | "admin";
 export type UserRole = Portal;
 
@@ -21,6 +21,7 @@ export interface Coach {
   email?: string;
   salaryMonthly?: number;
   status?: string;
+  isHeadCoach?: boolean;
   joinDate?: string;
   notes?: string;
 }
@@ -61,6 +62,30 @@ export interface Student {
 export interface AttendanceGridDay {
   date: string;
   status: AttendanceMark;
+  note?: string;
+  closureTitle?: string;
+  closureReason?: string;
+}
+
+export interface AcademyClosure {
+  id: string;
+  date: string;
+  title: string;
+  reason: string;
+  type: string;
+  scope: string;
+  batchId: string | null;
+  createdById?: string | null;
+}
+
+export interface FeePackage {
+  id: string;
+  name: string;
+  description: string;
+  months: number;
+  monthlyAmount: number;
+  totalAmount: number;
+  active: boolean;
 }
 
 export interface FeePayment {
@@ -114,6 +139,7 @@ export interface ParentPortalData {
   parent: { name: string; phone: string };
   children: ParentChild[];
   tournaments?: TournamentSummary[];
+  closures?: AcademyClosure[];
 }
 
 export interface TournamentSummary {
@@ -131,6 +157,8 @@ export interface TournamentSummary {
 
 export interface CoachPortalData {
   coach: Coach;
+  isHeadCoach?: boolean;
+  canViewFees?: boolean;
   batches: Batch[];
   students: Student[];
   coaches?: Coach[];
@@ -138,6 +166,8 @@ export interface CoachPortalData {
   myBatchIds?: string[];
   tournaments?: TournamentSummary[];
   notes?: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
+  closures?: AcademyClosure[];
+  feePackages?: FeePackage[];
 }
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "";
@@ -227,8 +257,18 @@ export const api = {
     }),
   parentPortal: () => request<ParentPortalData>("/api/portal/parent"),
   coachPortal: () => request<CoachPortalData>("/api/portal/coach"),
-  coachSaveAttendance: (body: { date: string; batchId?: string; marks: { studentId: string; status: string }[] }) =>
-    request("/api/portal/coach/attendance", { method: "POST", body: JSON.stringify(body) }),
+  coachListAttendance: (q: { date: string; batchId?: string }) => {
+    const qs = "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
+    return request<{
+      marks: { id: string; studentId: string; batchId?: string | null; date: string; status: string; note: string }[];
+      closure: AcademyClosure | null;
+    }>(`/api/portal/coach/attendance${qs}`);
+  },
+  coachSaveAttendance: (body: {
+    date: string;
+    batchId?: string;
+    marks: { studentId: string; status: string; note?: string }[];
+  }) => request("/api/portal/coach/attendance", { method: "POST", body: JSON.stringify(body) }),
   coachAddNote: (body: { studentId: string; note: string }) =>
     request("/api/portal/coach/notes", { method: "POST", body: JSON.stringify(body) }),
   coachUpdateScores: (studentId: string, scores: Student["scores"]) =>
@@ -236,6 +276,31 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ scores }),
     }),
+  coachListClosures: () => request<AcademyClosure[]>("/api/portal/coach/closures"),
+  coachCreateClosure: (body: {
+    date: string;
+    title: string;
+    reason?: string;
+    type?: string;
+    scope?: string;
+    batchId?: string;
+  }) => request<AcademyClosure>("/api/portal/coach/closures", { method: "POST", body: JSON.stringify(body) }),
+  coachDeleteClosure: (id: string) =>
+    request<{ ok: boolean }>(`/api/portal/coach/closures/${id}`, { method: "DELETE" }),
+  listClosures: (q?: { from?: string; to?: string; batchId?: string }) => {
+    const qs = q ? "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString() : "";
+    return request<AcademyClosure[]>(`/api/closures${qs}`);
+  },
+  createClosure: (body: {
+    date: string;
+    title: string;
+    reason?: string;
+    type?: string;
+    scope?: string;
+    batchId?: string;
+  }) => request<AcademyClosure>("/api/closures", { method: "POST", body: JSON.stringify(body) }),
+  deleteClosure: (id: string) =>
+    request<{ ok: boolean }>(`/api/closures/${id}`, { method: "DELETE" }),
   listTournaments: () => request<TournamentSummary[]>("/api/tournaments"),
   createTournament: (body: Partial<TournamentSummary> & { name: string; startDate: string; endDate: string }) =>
     request<TournamentSummary>("/api/tournaments", { method: "POST", body: JSON.stringify(body) }),
@@ -248,9 +313,9 @@ export const api = {
     const qs = q ? "?" + new URLSearchParams(q).toString() : "";
     return request<Student[]>(`/api/students${qs}`);
   },
-  createStudent: (body: Partial<Student>) =>
+  createStudent: (body: Partial<Student> & Record<string, unknown>) =>
     request<Student>("/api/students", { method: "POST", body: JSON.stringify(body) }),
-  updateStudent: (id: string, body: Partial<Student>) =>
+  updateStudent: (id: string, body: Partial<Student> & Record<string, unknown>) =>
     request<Student>(`/api/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteStudent: (id: string) =>
     request<{ ok: boolean }>(`/api/students/${id}`, { method: "DELETE" }),
@@ -351,8 +416,11 @@ export const api = {
     request<{ studentId: string; days: number; grid: AttendanceGridDay[] }>(
       `/api/attendance/grid/${studentId}?days=${days}`
     ),
-  saveAttendance: (body: { date: string; batchId?: string; marks: { studentId: string; status: string }[] }) =>
-    request("/api/attendance/bulk", { method: "POST", body: JSON.stringify(body) }),
+  saveAttendance: (body: {
+    date: string;
+    batchId?: string;
+    marks: { studentId: string; status: string; note?: string }[];
+  }) => request("/api/attendance/bulk", { method: "POST", body: JSON.stringify(body) }),
   createEnquiry: (body: Record<string, unknown>) =>
     request("/api/enquiries", { method: "POST", body: JSON.stringify(body) }),
   updateEnquiry: (id: string, body: Record<string, unknown>) =>

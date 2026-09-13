@@ -10,6 +10,7 @@ export function mapCoach(c: Coach) {
     email: c.email || "",
     salaryMonthly: (c as Coach & { salaryMonthly?: number }).salaryMonthly ?? 0,
     status: (c as Coach & { status?: string }).status || "active",
+    isHeadCoach: Boolean((c as Coach & { isHeadCoach?: boolean }).isHeadCoach),
     joinDate: (c as Coach & { joinDate?: Date | null }).joinDate
       ? (c as Coach & { joinDate: Date }).joinDate.toISOString().slice(0, 10)
       : "",

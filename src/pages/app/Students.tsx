@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
-import { Search, Grid3x3, List, MessageCircle, Eye, Plus, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Grid3x3, List, Eye, Plus, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StudentDetailModal } from "@/components/app/StudentDetailModal";
-import { StudentFormDialog, type StudentFormValues } from "@/components/app/StudentFormDialog";
+import {
+  StudentFormDialog,
+  type FeePackageOption,
+  type StudentFormValues,
+} from "@/components/app/StudentFormDialog";
 import { useAcademy } from "@/context/AcademyContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -19,6 +23,15 @@ const FEE_BADGES: Record<string, string> = {
 };
 const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue", overdue8: "Critical" };
 
+type ActiveEnrollment = {
+  packageId?: string | null;
+  packageName?: string;
+  months?: number;
+  monthlyAmount?: number;
+  startMonth?: string;
+  endMonth?: string;
+};
+
 const Students = () => {
   const {
     students, batches, coaches, getBatch, getCoach, initialsOf, initialsColor, inr, api, refresh, loading,
@@ -30,6 +43,34 @@ const Students = () => {
   const [openId, setOpenId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Student | null | undefined>(undefined); // undefined=closed, null=create
   const [busy, setBusy] = useState(false);
+  const [packages, setPackages] = useState<FeePackageOption[]>([]);
+  const [activeEnrollment, setActiveEnrollment] = useState<ActiveEnrollment | null>(null);
+
+  useEffect(() => {
+    void api.listFeePackages()
+      .then((rows) => setPackages(rows as FeePackageOption[]))
+      .catch(() => setPackages([]));
+  }, [api]);
+
+  useEffect(() => {
+    if (!editing?.id) {
+      setActiveEnrollment(null);
+      return;
+    }
+    let cancelled = false;
+    void api.listFeeEnrollments({ studentId: editing.id, status: "active" })
+      .then((rows) => {
+        if (cancelled) return;
+        const row = rows[0] as ActiveEnrollment | undefined;
+        setActiveEnrollment(row || null);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveEnrollment(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editing, api]);
 
   const filtered = useMemo(() => students.filter((s) => {
     if (q && !s.name.toLowerCase().includes(q.toLowerCase())) return false;
@@ -38,9 +79,60 @@ const Students = () => {
     return true;
   }), [q, batchFilter, feeFilter, students]);
 
+  const enrollFromForm = async (studentId: string, values: StudentFormValues) => {
+    if (values.feePlanMode === "package" && values.packageId) {
+      await api.enrollFeePackage({
+        studentId,
+        packageId: values.packageId,
+        startMonth: values.startMonth,
+      });
+      return;
+    }
+    await api.enrollFeePackage({
+      studentId,
+      startMonth: values.startMonth,
+      months: Math.max(1, Number(values.planMonths) || 1),
+      monthlyAmount: Number(values.feeAmount) || 15000,
+      packageName:
+        Number(values.planMonths) === 12
+          ? "1 year"
+          : Number(values.planMonths) === 1
+            ? "Monthly"
+            : `${values.planMonths}-month plan`,
+    });
+  };
+
+  const feePlanBody = (values: StudentFormValues, shouldEnroll: boolean) => {
+    if (!shouldEnroll) return { enrollFee: false as const };
+    if (values.feePlanMode === "package" && values.packageId) {
+      return {
+        enrollFee: true as const,
+        packageId: values.packageId,
+        startMonth: values.startMonth,
+      };
+    }
+    return {
+      enrollFee: true as const,
+      startMonth: values.startMonth,
+      feeMonths: Math.max(1, Number(values.planMonths) || 1),
+      monthlyAmount: Number(values.feeAmount) || 15000,
+      packageName:
+        Number(values.planMonths) === 12
+          ? "1 year"
+          : Number(values.planMonths) === 1
+            ? "Monthly"
+            : `${values.planMonths}-month plan`,
+    };
+  };
+
   const saveStudent = async (values: StudentFormValues) => {
     setBusy(true);
     try {
+      const monthly =
+        values.feePlanMode === "package"
+          ? packages.find((p) => p.id === values.packageId)?.monthlyAmount || Number(values.feeAmount) || 15000
+          : Number(values.feeAmount) || 15000;
+      const shouldEnroll = !editing || values.enrollFee;
       const body = {
         name: values.name.trim(),
         dob: values.dob || undefined,
@@ -48,25 +140,33 @@ const Students = () => {
         parentPhone: values.parentPhone,
         batchId: values.batchId || undefined,
         role: values.role,
-        feeStatus: values.feeStatus as Student["feeStatus"],
-        feeAmount: Number(values.feeAmount) || 15000,
-        daysOverdue: Number(values.daysOverdue) || 0,
+        feeAmount: monthly,
         joinDate: values.joinDate || undefined,
         medicalNotes: values.medicalNotes,
+        ...feePlanBody(values, shouldEnroll),
       };
+
       if (editing) {
         await api.updateStudent(editing.id, body);
         const phoneChanged =
           (editing.parentPhone || "").replace(/\D/g, "").slice(-10) !==
           (values.parentPhone || "").replace(/\D/g, "").slice(-10);
         toast.success(
-          phoneChanged
-            ? `Student updated — parent must sign in with ${values.parentPhone.replace(/\D/g, "").slice(-10)}`
-            : "Student updated — parent & coach portals stay in sync"
+          shouldEnroll
+            ? phoneChanged
+              ? `Updated + fee plan set — parent signs in with ${values.parentPhone.replace(/\D/g, "").slice(-10)}`
+              : "Student & fee plan updated — monthly dues ready through package end"
+            : phoneChanged
+              ? `Student updated — parent must sign in with ${values.parentPhone.replace(/\D/g, "").slice(-10)}`
+              : "Student updated — parent & coach portals stay in sync"
         );
       } else {
         await api.createStudent(body);
-        toast.success("Student added — parent portal login ready for that WhatsApp");
+        toast.success(
+          shouldEnroll
+            ? "Student added with fee plan — dues created through end date"
+            : "Student added — parent portal login ready for that WhatsApp"
+        );
       }
       setEditing(undefined);
       await refresh();
@@ -220,6 +320,8 @@ const Students = () => {
         student={editing ?? null}
         batches={batches}
         coaches={coaches}
+        packages={packages}
+        activeEnrollment={activeEnrollment}
         onSubmit={saveStudent}
         busy={busy}
       />

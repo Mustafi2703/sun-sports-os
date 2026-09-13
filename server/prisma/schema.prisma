@@ -26,11 +26,13 @@ model Coach {
   initials      String?
   salaryMonthly Int      @default(0)
   status        String   @default("active") /// active | inactive
+  isHeadCoach   Boolean  @default(false) /// Head coach (Harry) — fee structures + academy closures
   joinDate      DateTime?
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   batches       Batch[]
+  closures      AcademyClosure[]
 }
 
 model Batch {
@@ -163,10 +165,30 @@ model AttendanceRecord {
   batchId     String?
   batch       Batch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
   date        DateTime @db.Date
-  status      String   // present | absent | late
+  status      String   // present | absent | late | leave | no_session
+  note        String?  /// leave reason / parent mention
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@unique([studentId, date])
+}
+
+/// Academy / batch no-session days — holidays, closures, rain offs (visible on all calendars)
+model AcademyClosure {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  title       String   /// e.g. "Independence Day", "Academy closed"
+  reason      String?  /// detail shown to parents
+  type        String   @default("holiday") /// holiday | closure | rain | other
+  scope       String   @default("academy") /// academy | batch
+  batchId     String   @default("") /// empty = academy-wide
+  createdById String?
+  createdBy   Coach?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date, scope, batchId])
+  @@index([date])
 }
 
 model CoachNote {

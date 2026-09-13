@@ -13,10 +13,12 @@ import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
 import {
-  buildMonthSchedule,
+  enrollStudentOnFeePlan,
   ensureDefaultFeePackages,
+  feePlanInputFromBody,
   monthLabelFromDate,
   refreshStudentFeeState,
+  shouldEnrollFeeFromBody,
 } from "../lib/feeSync.js";
 
 export const api = Router();
@@ -114,6 +116,7 @@ api.post("/coaches", async (req, res) => {
       initials,
       salaryMonthly: Number(req.body.salaryMonthly) || 0,
       status: req.body.status === "inactive" ? "inactive" : "active",
+      isHeadCoach: Boolean(req.body.isHeadCoach),
       joinDate: req.body.joinDate ? new Date(req.body.joinDate) : new Date(),
       notes: req.body.notes || null,
     },
@@ -158,6 +161,7 @@ api.put("/coaches/:id", async (req, res) => {
         ...(req.body.status !== undefined
           ? { status: req.body.status === "inactive" ? "inactive" : "active" }
           : {}),
+        ...(req.body.isHeadCoach !== undefined ? { isHeadCoach: Boolean(req.body.isHeadCoach) } : {}),
         ...(req.body.joinDate !== undefined
           ? { joinDate: req.body.joinDate ? new Date(req.body.joinDate) : null }
           : {}),
@@ -279,10 +283,40 @@ api.get("/students", async (req, res) => {
 api.get("/students/:id", async (req, res) => {
   const row = await prisma.student.findUnique({
     where: { id: req.params.id },
-    include: { payments: { orderBy: { paidAt: "desc" }, take: 12 }, notes: { orderBy: { createdAt: "desc" }, take: 10 } },
+    include: {
+      payments: { orderBy: { paidAt: "desc" }, take: 12 },
+      notes: { orderBy: { createdAt: "desc" }, take: 10 },
+      feeEnrollments: {
+        where: { status: "active" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { installments: { orderBy: { dueDate: "asc" } } },
+      },
+    },
   });
   if (!row) return res.status(404).json({ error: "Student not found" });
-  res.json({ ...mapStudent(row), payments: row.payments, notes: row.notes });
+  const active = row.feeEnrollments[0];
+  res.json({
+    ...mapStudent(row),
+    payments: row.payments,
+    notes: row.notes,
+    activeEnrollment: active
+      ? {
+          id: active.id,
+          packageId: active.packageId,
+          packageName: active.packageName,
+          months: active.months,
+          monthlyAmount: active.monthlyAmount,
+          totalAmount: active.totalAmount,
+          startMonth: active.startMonth,
+          endMonth: active.endMonth,
+          status: active.status,
+          paidCount: active.installments.filter((i) => i.status === "paid").length,
+          dueCount: active.installments.filter((i) => i.status !== "paid").length,
+          installments: active.installments.map(mapInstallment),
+        }
+      : null,
+  });
 });
 
 api.post("/students", async (req, res) => {
@@ -327,7 +361,34 @@ api.post("/students", async (req, res) => {
   } catch (e) {
     console.warn("ensureParentUser:", e);
   }
-  res.status(201).json(mapStudent(row));
+
+  let activeEnrollment = null;
+  if (shouldEnrollFeeFromBody(req.body)) {
+    try {
+      const enrollment = await enrollStudentOnFeePlan(row.id, feePlanInputFromBody(req.body));
+      activeEnrollment = {
+        id: enrollment.id,
+        packageId: enrollment.packageId,
+        packageName: enrollment.packageName,
+        months: enrollment.months,
+        monthlyAmount: enrollment.monthlyAmount,
+        totalAmount: enrollment.totalAmount,
+        startMonth: enrollment.startMonth,
+        endMonth: enrollment.endMonth,
+        status: enrollment.status,
+        installments: enrollment.installments.map(mapInstallment),
+      };
+    } catch (e) {
+      console.error("student create enroll fee:", e);
+      return res.status(400).json({
+        error: e instanceof Error ? e.message : "Student created but fee plan failed",
+        student: mapStudent(row),
+      });
+    }
+  }
+
+  const fresh = await prisma.student.findUnique({ where: { id: row.id } });
+  res.status(201).json({ ...mapStudent(fresh || row), activeEnrollment });
 });
 
 api.put("/students/:id", async (req, res) => {
@@ -390,8 +451,54 @@ api.put("/students/:id", async (req, res) => {
     } catch (e) {
       console.warn("ensureParentUser:", e);
     }
+
+    let activeEnrollment = null;
+    if (shouldEnrollFeeFromBody(req.body)) {
+      try {
+        const enrollment = await enrollStudentOnFeePlan(row.id, feePlanInputFromBody(req.body));
+        activeEnrollment = {
+          id: enrollment.id,
+          packageId: enrollment.packageId,
+          packageName: enrollment.packageName,
+          months: enrollment.months,
+          monthlyAmount: enrollment.monthlyAmount,
+          totalAmount: enrollment.totalAmount,
+          startMonth: enrollment.startMonth,
+          endMonth: enrollment.endMonth,
+          status: enrollment.status,
+          installments: enrollment.installments.map(mapInstallment),
+        };
+      } catch (e) {
+        console.error("student update enroll fee:", e);
+        return res.status(400).json({
+          error: e instanceof Error ? e.message : "Student updated but fee plan failed",
+          student: mapStudent(row),
+        });
+      }
+    } else {
+      const current = await prisma.feeEnrollment.findFirst({
+        where: { studentId: row.id, status: "active" },
+        include: { installments: true },
+      });
+      if (current) {
+        activeEnrollment = {
+          id: current.id,
+          packageId: current.packageId,
+          packageName: current.packageName,
+          months: current.months,
+          monthlyAmount: current.monthlyAmount,
+          totalAmount: current.totalAmount,
+          startMonth: current.startMonth,
+          endMonth: current.endMonth,
+          status: current.status,
+          installments: current.installments.map(mapInstallment),
+        };
+      }
+    }
+
+    const fresh = await prisma.student.findUnique({ where: { id: row.id } });
     res.setHeader("Cache-Control", "no-store");
-    res.json(mapStudent(row));
+    res.json({ ...mapStudent(fresh || row), activeEnrollment });
   } catch {
     res.status(404).json({ error: "Student not found" });
   }
@@ -495,20 +602,82 @@ api.post("/attendance/bulk", async (req, res) => {
   const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
   date.setHours(0, 0, 0, 0);
   const batchId = req.body.batchId || null;
-  const marks: { studentId: string; status: string }[] = req.body.marks || [];
+  const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
   if (!marks.length) return res.status(400).json({ error: "marks required" });
+  const allowed = new Set(["present", "absent", "late", "leave", "no_session"]);
 
   const results = await Promise.all(
-    marks.map((m) =>
-      prisma.attendanceRecord.upsert({
+    marks.map((m) => {
+      const status = allowed.has(m.status) ? m.status : "present";
+      const note = m.note != null ? String(m.note).trim() || null : undefined;
+      return prisma.attendanceRecord.upsert({
         where: { studentId_date: { studentId: m.studentId, date } },
-        create: { studentId: m.studentId, batchId, date, status: m.status },
-        update: { status: m.status, batchId },
-      })
-    )
+        create: {
+          studentId: m.studentId,
+          batchId,
+          date,
+          status,
+          note: note ?? null,
+        },
+        update: {
+          status,
+          batchId,
+          ...(note !== undefined ? { note } : {}),
+        },
+      });
+    })
   );
   await recomputeAttendancePctMany(marks.map((m) => m.studentId));
   res.json({ ok: true, count: results.length });
+});
+
+// ─── Academy closures / holidays ────────────────────────────────────
+api.get("/closures", async (req, res) => {
+  const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+  const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+  if (from) from.setHours(0, 0, 0, 0);
+  if (to) to.setHours(0, 0, 0, 0);
+  const { listClosures } = await import("../lib/closures.js");
+  res.json(await listClosures({ from, to, batchId: req.query.batchId ? String(req.query.batchId) : null }));
+});
+
+api.post("/closures", async (req, res) => {
+  const dateStr = String(req.body.date || "").slice(0, 10);
+  const title = String(req.body.title || "").trim();
+  if (!dateStr || !title) return res.status(400).json({ error: "date and title required" });
+  const date = new Date(dateStr);
+  date.setHours(0, 0, 0, 0);
+  const scope = req.body.scope === "batch" ? "batch" : "academy";
+  const batchId = scope === "batch" ? String(req.body.batchId || "") : "";
+  if (scope === "batch" && !batchId) return res.status(400).json({ error: "batchId required for batch scope" });
+
+  const row = await prisma.academyClosure.upsert({
+    where: { date_scope_batchId: { date, scope, batchId } },
+    create: {
+      date,
+      title,
+      reason: req.body.reason ? String(req.body.reason) : null,
+      type: String(req.body.type || "holiday"),
+      scope,
+      batchId,
+    },
+    update: {
+      title,
+      reason: req.body.reason ? String(req.body.reason) : null,
+      type: String(req.body.type || "holiday"),
+    },
+  });
+  const { mapClosure } = await import("../lib/closures.js");
+  res.status(201).json(mapClosure(row));
+});
+
+api.delete("/closures/:id", async (req, res) => {
+  try {
+    await prisma.academyClosure.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Closure not found" });
+  }
 });
 
 api.delete("/attendance/:id", async (req, res) => {
@@ -915,74 +1084,32 @@ api.delete("/fee-packages/:id", async (req, res) => {
 api.post("/fee-enrollments", async (req, res) => {
   const studentId = String(req.body.studentId || "");
   if (!studentId) return res.status(400).json({ error: "studentId required" });
-  const student = await prisma.student.findUnique({ where: { id: studentId } });
-  if (!student) return res.status(404).json({ error: "Student not found" });
-
-  let packageName = String(req.body.packageName || "").trim();
-  let months = Math.max(1, Number(req.body.months) || 1);
-  let monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || student.feeAmount || 15000);
-  let packageId: string | null = req.body.packageId ? String(req.body.packageId) : null;
-
-  if (packageId) {
-    const pkg = await prisma.feePackage.findUnique({ where: { id: packageId } });
-    if (!pkg) return res.status(404).json({ error: "Package not found" });
-    packageName = pkg.name;
-    months = pkg.months;
-    monthlyAmount = pkg.monthlyAmount;
+  try {
+    const enrollment = await enrollStudentOnFeePlan(studentId, {
+      packageId: req.body.packageId,
+      packageName: req.body.packageName,
+      months: req.body.months,
+      monthlyAmount: req.body.monthlyAmount,
+      startMonth: req.body.startMonth,
+    });
+    res.status(201).json({
+      id: enrollment.id,
+      studentId: enrollment.studentId,
+      packageId: enrollment.packageId,
+      packageName: enrollment.packageName,
+      months: enrollment.months,
+      monthlyAmount: enrollment.monthlyAmount,
+      totalAmount: enrollment.totalAmount,
+      startMonth: enrollment.startMonth,
+      endMonth: enrollment.endMonth,
+      status: enrollment.status,
+      installments: enrollment.installments.map(mapInstallment),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Enrollment failed";
+    const status = msg.includes("not found") ? 404 : 400;
+    res.status(status).json({ error: msg });
   }
-  if (!packageName) packageName = months === 1 ? "Monthly" : `${months}-month package`;
-
-  const startMonth = String(req.body.startMonth || monthLabelFromDate(new Date()));
-  const schedule = buildMonthSchedule(startMonth, months);
-  const endMonth = schedule[schedule.length - 1]?.monthLabel || startMonth;
-  const totalAmount = monthlyAmount * months;
-
-  // Cancel previous active enrollments for this student (keep paid history)
-  await prisma.feeEnrollment.updateMany({
-    where: { studentId, status: "active" },
-    data: { status: "cancelled" },
-  });
-
-  const enrollment = await prisma.feeEnrollment.create({
-    data: {
-      studentId,
-      packageId,
-      packageName,
-      months,
-      monthlyAmount,
-      totalAmount,
-      startMonth,
-      endMonth,
-      status: "active",
-      installments: {
-        create: schedule.map((s) => ({
-          studentId,
-          monthLabel: s.monthLabel,
-          dueDate: s.dueDate,
-          amount: monthlyAmount,
-          status: "pending",
-          daysOverdue: 0,
-        })),
-      },
-    },
-    include: { installments: { orderBy: { dueDate: "asc" } } },
-  });
-
-  await refreshStudentFeeState(studentId);
-
-  res.status(201).json({
-    id: enrollment.id,
-    studentId: enrollment.studentId,
-    packageId: enrollment.packageId,
-    packageName: enrollment.packageName,
-    months: enrollment.months,
-    monthlyAmount: enrollment.monthlyAmount,
-    totalAmount: enrollment.totalAmount,
-    startMonth: enrollment.startMonth,
-    endMonth: enrollment.endMonth,
-    status: enrollment.status,
-    installments: enrollment.installments.map(mapInstallment),
-  });
 });
 
 api.get("/fee-enrollments", async (req, res) => {

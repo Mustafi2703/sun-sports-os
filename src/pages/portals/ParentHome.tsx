@@ -11,7 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { api, initialsColor, initialsOf, inr, type ParentChild, type ParentPortalData, type TournamentSummary } from "@/lib/api";
+import { api, initialsColor, initialsOf, inr, type AcademyClosure, type ParentChild, type ParentPortalData, type TournamentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -310,7 +310,7 @@ export default function ParentHome() {
             />
           )}
           {tab === "fees" && <FeesTab child={child} />}
-          {tab === "attendance" && <AttendanceTab child={child} />}
+          {tab === "attendance" && <AttendanceTab child={child} closures={data?.closures || []} />}
           {tab === "progress" && (
             <ProgressTab
               child={child}
@@ -817,34 +817,53 @@ function FeesTab({ child }: { child: ParentChild }) {
   );
 }
 
-function AttendanceTab({ child }: { child: ParentChild }) {
+function AttendanceTab({ child, closures = [] }: { child: ParentChild; closures?: AcademyClosure[] }) {
   const present = child.attendanceGrid.filter((d) => d.status === "present" || d.status === "late").length;
   const absent = child.attendanceGrid.filter((d) => d.status === "absent").length;
+  const leave = child.attendanceGrid.filter((d) => d.status === "leave").length;
+  const noSession = child.attendanceGrid.filter((d) => d.status === "no_session").length;
   const marked = child.attendanceGrid.filter((d) => d.status !== "none").length;
+  const upcomingClosures = closures.filter((c) => c.date >= new Date().toISOString().slice(0, 10)).slice(0, 6);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Attendance" description={`30-day calendar for ${child.name}.`} />
+      <PageHeader title="Attendance" description={`30-day calendar for ${child.name} — holidays & leave notes included.`} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Rate" value={child.attendancePct > 0 ? `${child.attendancePct}%` : "—"} icon={<CalendarCheck className="h-4 w-4" />} />
         <StatCard label="Present" value={String(present)} icon={<Users className="h-4 w-4" />} tone="success" />
-        <StatCard label="Absent" value={String(absent)} icon={<AlertTriangle className="h-4 w-4" />} tone={absent > 3 ? "danger" : "default"} />
-        <StatCard label="Marked days" value={String(marked)} icon={<Calendar className="h-4 w-4" />} />
+        <StatCard label="Absent / leave" value={String(absent + leave)} icon={<AlertTriangle className="h-4 w-4" />} tone={absent > 3 ? "danger" : "default"} />
+        <StatCard label="No session" value={String(noSession)} icon={<Calendar className="h-4 w-4" />} />
       </div>
+
+      {upcomingClosures.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="font-display font-semibold mb-2">Upcoming holidays / closures</p>
+          <div className="space-y-2">
+            {upcomingClosures.map((c) => (
+              <div key={c.id} className="text-sm rounded-lg border border-border/60 px-3 py-2">
+                <p className="font-medium">{c.date} · {c.title}</p>
+                {c.reason ? <p className="text-xs text-muted-foreground">{c.reason}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-border bg-card p-5">
         <p className="font-display font-semibold mb-1">Last 30 days</p>
-        <p className="text-xs text-muted-foreground mb-4">{marked} sessions marked</p>
+        <p className="text-xs text-muted-foreground mb-4">{marked} days with records</p>
         <div className="grid grid-cols-10 gap-1.5">
           {child.attendanceGrid.map((m) => (
             <div
               key={m.date}
-              title={`${m.date}: ${m.status}`}
+              title={`${m.date}: ${m.status}${m.closureTitle ? ` — ${m.closureTitle}` : ""}${m.note ? ` (${m.note})` : ""}${m.closureReason ? ` · ${m.closureReason}` : ""}`}
               className={cn(
                 "aspect-square rounded-md",
                 m.status === "present" && "bg-primary/80",
                 m.status === "late" && "bg-amber-500/80",
                 m.status === "absent" && "bg-destructive/80",
+                m.status === "leave" && "bg-blue-500/70",
+                m.status === "no_session" && "bg-slate-400/50",
                 m.status === "none" && "bg-muted/40"
               )}
             />
@@ -854,7 +873,8 @@ function AttendanceTab({ child }: { child: ParentChild }) {
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-primary/80" /> Present</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-500/80" /> Late</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-destructive/80" /> Absent</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-muted/40" /> No session</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-blue-500/70" /> Leave</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-slate-400/50" /> Holiday / no session</span>
         </div>
       </div>
     </div>
