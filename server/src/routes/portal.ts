@@ -212,6 +212,7 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
     coach: mapCoach(coach),
     isHeadCoach: isHead,
     canViewFees: isHead,
+    canManageStudents: isHead,
     batches: batches.map(mapBatch),
     students: mappedStudents,
     coaches: coaches.map(mapCoach),
@@ -428,6 +429,298 @@ portalRouter.get("/coach/fee-packages", requireAuth("coach"), async (req, res) =
       active: p.active,
     }))
   );
+});
+
+portalRouter.put("/coach/fee-packages/:id", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can edit fee structures" });
+  }
+  const id = String(req.params.id);
+  const months = req.body.months != null ? Math.max(1, Number(req.body.months) || 1) : undefined;
+  const monthlyAmount =
+    req.body.monthlyAmount != null ? Math.max(0, Number(req.body.monthlyAmount) || 0) : undefined;
+  try {
+    const existing = await prisma.feePackage.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "Package not found" });
+    const nextMonths = months ?? existing.months;
+    const nextMonthly = monthlyAmount ?? existing.monthlyAmount;
+    const row = await prisma.feePackage.update({
+      where: { id },
+      data: {
+        ...(req.body.name != null ? { name: String(req.body.name).trim() } : {}),
+        ...(req.body.description !== undefined ? { description: String(req.body.description || "") } : {}),
+        ...(months != null ? { months: nextMonths } : {}),
+        ...(monthlyAmount != null ? { monthlyAmount: nextMonthly } : {}),
+        totalAmount: nextMonthly * nextMonths,
+        ...(req.body.active !== undefined ? { active: Boolean(req.body.active) } : {}),
+      },
+    });
+    res.json({
+      id: row.id,
+      name: row.name,
+      description: row.description || "",
+      months: row.months,
+      monthlyAmount: row.monthlyAmount,
+      totalAmount: row.totalAmount,
+      active: row.active,
+    });
+  } catch {
+    res.status(404).json({ error: "Package not found" });
+  }
+});
+
+portalRouter.post("/coach/fee-packages", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can create fee structures" });
+  }
+  const name = String(req.body.name || "").trim();
+  const months = Math.max(1, Number(req.body.months) || 1);
+  const monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || 0);
+  if (!name || !monthlyAmount) return res.status(400).json({ error: "name and monthlyAmount required" });
+  const row = await prisma.feePackage.create({
+    data: {
+      name,
+      description: req.body.description ? String(req.body.description) : null,
+      months,
+      monthlyAmount,
+      totalAmount: monthlyAmount * months,
+      active: true,
+    },
+  });
+  res.status(201).json({
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    months: row.months,
+    monthlyAmount: row.monthlyAmount,
+    totalAmount: row.totalAmount,
+    active: row.active,
+  });
+});
+
+/** Head coach — add / edit / delete students (+ fee plan enrollment) */
+portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can add students" });
+  }
+  const { ageFromDob, mapStudent } = await import("../lib/mappers.js");
+  const { syncParentAccess } = await import("../lib/ensureUser.js");
+  const {
+    enrollStudentOnFeePlan,
+    feePlanInputFromBody,
+    shouldEnrollFeeFromBody,
+  } = await import("../lib/feeSync.js");
+
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "name required" });
+  const parentPhone = normalizePhone(req.body.parentPhone);
+  if (!parentPhone || parentPhone.length < 10) {
+    return res.status(400).json({
+      error: "Valid 10-digit parent WhatsApp required — this creates the parent portal login",
+    });
+  }
+  const dob = req.body.dob ? new Date(req.body.dob) : null;
+  const row = await prisma.student.create({
+    data: {
+      name,
+      dob,
+      age: ageFromDob(dob) ?? (Number(req.body.age) || 12),
+      parentName: req.body.parentName || null,
+      parentPhone,
+      role: req.body.role || null,
+      feeStatus: req.body.feeStatus || "paid",
+      feeAmount: Number(req.body.feeAmount) || 15000,
+      daysOverdue: Number(req.body.daysOverdue) || 0,
+      attendancePct: Number(req.body.attendancePct) || 90,
+      batting: 3,
+      bowling: 3,
+      fielding: 3,
+      fitness: 3,
+      temperament: 3,
+      joinDate: req.body.joinDate ? new Date(req.body.joinDate) : new Date(),
+      medicalNotes: req.body.medicalNotes || null,
+      batchId: req.body.batchId || null,
+    },
+  });
+  try {
+    await syncParentAccess({ oldPhone: null, newPhone: row.parentPhone, parentName: row.parentName });
+  } catch (e) {
+    console.warn("ensureParentUser:", e);
+  }
+
+  let activeEnrollment = null;
+  if (shouldEnrollFeeFromBody(req.body)) {
+    try {
+      const enrollment = await enrollStudentOnFeePlan(row.id, feePlanInputFromBody(req.body));
+      activeEnrollment = {
+        id: enrollment.id,
+        packageId: enrollment.packageId,
+        packageName: enrollment.packageName,
+        months: enrollment.months,
+        monthlyAmount: enrollment.monthlyAmount,
+        totalAmount: enrollment.totalAmount,
+        startMonth: enrollment.startMonth,
+        endMonth: enrollment.endMonth,
+        status: enrollment.status,
+      };
+    } catch (e) {
+      return res.status(400).json({
+        error: e instanceof Error ? e.message : "Student created but fee plan failed",
+        student: mapStudent(row),
+      });
+    }
+  }
+
+  const fresh = await prisma.student.findUnique({ where: { id: row.id } });
+  res.status(201).json({ ...mapStudent(fresh || row), activeEnrollment });
+});
+
+portalRouter.put("/coach/students/:id", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can edit students" });
+  }
+  const { ageFromDob, mapStudent } = await import("../lib/mappers.js");
+  const { syncParentAccess } = await import("../lib/ensureUser.js");
+  const {
+    enrollStudentOnFeePlan,
+    feePlanInputFromBody,
+    shouldEnrollFeeFromBody,
+  } = await import("../lib/feeSync.js");
+
+  const id = String(req.params.id);
+  try {
+    const existing = await prisma.student.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "Student not found" });
+
+    let nextParentPhone: string | undefined;
+    if (req.body.parentPhone !== undefined) {
+      const phone = normalizePhone(req.body.parentPhone);
+      if (!phone || phone.length < 10) {
+        return res.status(400).json({ error: "Valid 10-digit parent WhatsApp required" });
+      }
+      nextParentPhone = phone;
+    }
+
+    const dob = req.body.dob !== undefined ? (req.body.dob ? new Date(req.body.dob) : null) : undefined;
+    const row = await prisma.student.update({
+      where: { id },
+      data: {
+        ...(req.body.name != null ? { name: String(req.body.name).trim() } : {}),
+        ...(dob !== undefined ? { dob, age: ageFromDob(dob) } : {}),
+        ...(req.body.parentName !== undefined ? { parentName: req.body.parentName } : {}),
+        ...(nextParentPhone !== undefined ? { parentPhone: nextParentPhone } : {}),
+        ...(req.body.role !== undefined ? { role: req.body.role } : {}),
+        ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
+        ...(req.body.joinDate !== undefined
+          ? { joinDate: req.body.joinDate ? new Date(req.body.joinDate) : null }
+          : {}),
+        ...(req.body.medicalNotes !== undefined ? { medicalNotes: req.body.medicalNotes } : {}),
+        ...(req.body.batchId !== undefined ? { batchId: req.body.batchId || null } : {}),
+      },
+    });
+    try {
+      await syncParentAccess({
+        oldPhone: existing.parentPhone,
+        newPhone: row.parentPhone,
+        parentName: row.parentName,
+      });
+    } catch (e) {
+      console.warn("ensureParentUser:", e);
+    }
+
+    let activeEnrollment = null;
+    if (shouldEnrollFeeFromBody(req.body)) {
+      try {
+        const enrollment = await enrollStudentOnFeePlan(row.id, feePlanInputFromBody(req.body));
+        activeEnrollment = {
+          id: enrollment.id,
+          packageId: enrollment.packageId,
+          packageName: enrollment.packageName,
+          months: enrollment.months,
+          monthlyAmount: enrollment.monthlyAmount,
+          totalAmount: enrollment.totalAmount,
+          startMonth: enrollment.startMonth,
+          endMonth: enrollment.endMonth,
+          status: enrollment.status,
+        };
+      } catch (e) {
+        return res.status(400).json({
+          error: e instanceof Error ? e.message : "Student updated but fee plan failed",
+          student: mapStudent(row),
+        });
+      }
+    }
+
+    const fresh = await prisma.student.findUnique({ where: { id: row.id } });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ...mapStudent(fresh || row), activeEnrollment });
+  } catch {
+    res.status(404).json({ error: "Student not found" });
+  }
+});
+
+portalRouter.delete("/coach/students/:id", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can delete students" });
+  }
+  const { syncParentAccess } = await import("../lib/ensureUser.js");
+  const id = String(req.params.id);
+  try {
+    const existing = await prisma.student.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: "Student not found" });
+    await prisma.student.delete({ where: { id } });
+    try {
+      await syncParentAccess({
+        oldPhone: existing.parentPhone,
+        newPhone: null,
+        parentName: existing.parentName,
+      });
+    } catch (e) {
+      console.warn("syncParentAccess:", e);
+    }
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Student not found" });
+  }
+});
+
+portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can enroll fee plans" });
+  }
+  const { enrollStudentOnFeePlan } = await import("../lib/feeSync.js");
+  const studentId = String(req.body.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  try {
+    const enrollment = await enrollStudentOnFeePlan(studentId, {
+      packageId: req.body.packageId,
+      packageName: req.body.packageName,
+      months: req.body.months,
+      monthlyAmount: req.body.monthlyAmount,
+      startMonth: req.body.startMonth,
+    });
+    res.status(201).json({
+      id: enrollment.id,
+      studentId: enrollment.studentId,
+      packageId: enrollment.packageId,
+      packageName: enrollment.packageName,
+      months: enrollment.months,
+      monthlyAmount: enrollment.monthlyAmount,
+      totalAmount: enrollment.totalAmount,
+      startMonth: enrollment.startMonth,
+      endMonth: enrollment.endMonth,
+      status: enrollment.status,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Enrollment failed";
+    res.status(msg.includes("not found") ? 404 : 400).json({ error: msg });
+  }
 });
 
 /** Coach updates performance scores for own students */

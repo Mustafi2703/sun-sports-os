@@ -159,6 +159,7 @@ export interface CoachPortalData {
   coach: Coach;
   isHeadCoach?: boolean;
   canViewFees?: boolean;
+  canManageStudents?: boolean;
   batches: Batch[];
   students: Student[];
   coaches?: Coach[];
@@ -287,6 +288,39 @@ export const api = {
   }) => request<AcademyClosure>("/api/portal/coach/closures", { method: "POST", body: JSON.stringify(body) }),
   coachDeleteClosure: (id: string) =>
     request<{ ok: boolean }>(`/api/portal/coach/closures/${id}`, { method: "DELETE" }),
+  coachUpdateFeePackage: (
+    id: string,
+    body: { name?: string; description?: string; months?: number; monthlyAmount?: number; active?: boolean }
+  ) =>
+    request<FeePackage>(`/api/portal/coach/fee-packages/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  coachCreateFeePackage: (body: {
+    name: string;
+    description?: string;
+    months: number;
+    monthlyAmount: number;
+  }) =>
+    request<FeePackage>("/api/portal/coach/fee-packages", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  coachCreateStudent: (body: Partial<Student> & Record<string, unknown>) =>
+    request<Student>("/api/portal/coach/students", { method: "POST", body: JSON.stringify(body) }),
+  coachUpdateStudent: (id: string, body: Partial<Student> & Record<string, unknown>) =>
+    request<Student>(`/api/portal/coach/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  coachDeleteStudent: (id: string) =>
+    request<{ ok: boolean }>(`/api/portal/coach/students/${id}`, { method: "DELETE" }),
+  coachEnrollFeePackage: (body: {
+    studentId: string;
+    packageId?: string;
+    packageName?: string;
+    months?: number;
+    monthlyAmount?: number;
+    startMonth?: string;
+  }) =>
+    request("/api/portal/coach/fee-enrollments", { method: "POST", body: JSON.stringify(body) }),
   listClosures: (q?: { from?: string; to?: string; batchId?: string }) => {
     const qs = q ? "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString() : "";
     return request<AcademyClosure[]>(`/api/closures${qs}`);

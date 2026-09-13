@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Calendar, Users, CreditCard, Award, Home, AlertTriangle, TrendingUp, Trophy,
-  CalendarCheck, ArrowRight, Layers,
+  CalendarCheck, ArrowRight, Layers, Plus, Pencil, Trash2, Save,
 } from "lucide-react";
+import {
+  StudentFormDialog,
+  type FeePackageOption,
+  type StudentFormValues,
+} from "@/components/app/StudentFormDialog";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
@@ -49,6 +54,11 @@ export default function CoachHome() {
     type: "closure",
   });
   const [closureBusy, setClosureBusy] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null | undefined>(undefined);
+  const [studentBusy, setStudentBusy] = useState(false);
+  const [pkgDrafts, setPkgDrafts] = useState<Record<string, string>>({});
+  const [pkgBusy, setPkgBusy] = useState<string | null>(null);
+
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [assessId, setAssessId] = useState("");
   const [scoreDraft, setScoreDraft] = useState({ batting: 3, bowling: 3, fielding: 3, fitness: 3, temperament: 3 });
@@ -135,6 +145,17 @@ export default function CoachHome() {
   const overdueAmount = overdue.reduce((a, s) => a + s.feeAmount, 0);
   const feePackages = data?.feePackages ?? [];
   const closures = data?.closures ?? [];
+
+  useEffect(() => {
+    if (!feePackages.length) return;
+    setPkgDrafts((prev) => {
+      const next = { ...prev };
+      for (const p of feePackages) {
+        if (next[p.id] == null) next[p.id] = String(p.monthlyAmount);
+      }
+      return next;
+    });
+  }, [feePackages]);
 
   const filteredStudents = useMemo(() => {
     if (studentFilter === "overdue") return overdue;
@@ -273,7 +294,91 @@ export default function CoachHome() {
     }
   };
 
-  const onTabChange = (id: string) => {
+  const feePlanBody = (values: StudentFormValues, shouldEnroll: boolean) => {
+    if (!shouldEnroll) return { enrollFee: false as const };
+    if (values.feePlanMode === "package" && values.packageId) {
+      return { enrollFee: true as const, packageId: values.packageId, startMonth: values.startMonth };
+    }
+    return {
+      enrollFee: true as const,
+      startMonth: values.startMonth,
+      feeMonths: Math.max(1, Number(values.planMonths) || 1),
+      monthlyAmount: Number(values.feeAmount) || 15000,
+      packageName:
+        Number(values.planMonths) === 12
+          ? "1 year"
+          : Number(values.planMonths) === 1
+            ? "Monthly"
+            : `${values.planMonths}-month plan`,
+    };
+  };
+
+  const saveStudentAsHead = async (values: StudentFormValues) => {
+    setStudentBusy(true);
+    try {
+      const monthly =
+        values.feePlanMode === "package"
+          ? feePackages.find((p) => p.id === values.packageId)?.monthlyAmount || Number(values.feeAmount) || 15000
+          : Number(values.feeAmount) || 15000;
+      const shouldEnroll = !editingStudent || values.enrollFee;
+      const body = {
+        name: values.name.trim(),
+        dob: values.dob || undefined,
+        parentName: values.parentName,
+        parentPhone: values.parentPhone,
+        batchId: values.batchId || undefined,
+        role: values.role,
+        feeAmount: monthly,
+        joinDate: values.joinDate || undefined,
+        medicalNotes: values.medicalNotes,
+        ...feePlanBody(values, shouldEnroll),
+      };
+      if (editingStudent) {
+        await api.coachUpdateStudent(editingStudent.id, body);
+        toast.success(shouldEnroll ? "Student & fee plan updated" : "Student updated");
+      } else {
+        await api.coachCreateStudent(body);
+        toast.success("Student added with fee plan");
+      }
+      setEditingStudent(undefined);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setStudentBusy(false);
+    }
+  };
+
+  const deleteStudentAsHead = async (s: Student) => {
+    if (!confirm(`Delete ${s.name}? This cannot be undone.`)) return;
+    try {
+      await api.coachDeleteStudent(s.id);
+      toast.success("Student deleted");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  const savePackageAmount = async (pkgId: string) => {
+    const amount = Number(pkgDrafts[pkgId]);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter a valid monthly amount");
+      return;
+    }
+    setPkgBusy(pkgId);
+    try {
+      await api.coachUpdateFeePackage(pkgId, { monthlyAmount: amount });
+      toast.success("Fee package updated");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setPkgBusy(null);
+    }
+  };
+
+    const onTabChange = (id: string) => {
     setTab(id);
     void refresh().catch(() => undefined);
   };
@@ -339,7 +444,7 @@ export default function CoachHome() {
                   title={overdue.length ? `${overdue.length} player(s) with overdue fees` : "No fee alerts"}
                   desc={overdue.length ? `${inr(overdueAmount)} pending across your batches.` : "All players paid up."}
                   cta="Review fees"
-                  onClick={() => { setStudentFilter("overdue"); setTab("fees"); }}
+                  onClick={() => { if (isHeadCoach) { setStudentFilter("overdue"); setTab("fees"); } else setTab("students"); }}
                 />
                 <AlertCard
                   tone={lowAtt.length ? "warning" : "info"}
@@ -430,11 +535,21 @@ export default function CoachHome() {
 
           {tab === "students" && (
             <div className="space-y-6">
-              <PageHeader title="Players" description="Students in your assigned batches." />
+              <PageHeader
+                title="Players"
+                description={isHeadCoach ? "Add, edit, and enroll students on fee packages." : "Students in your assigned batches."}
+                actions={
+                  isHeadCoach ? (
+                    <Button className="bg-primary text-primary-foreground" onClick={() => setEditingStudent(null)}>
+                      <Plus className="h-4 w-4 mr-1.5" /> Add student
+                    </Button>
+                  ) : undefined
+                }
+              />
               <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {([
                   ["all", `All (${students.length})`],
-                  ["overdue", `Fees due (${overdue.length})`],
+                  ...(isHeadCoach ? [["overdue", `Fees due (${overdue.length})`] as const] : []),
                   ["lowatt", `Low att. (${lowAtt.length})`],
                 ] as const).map(([id, label]) => (
                   <button
@@ -457,7 +572,16 @@ export default function CoachHome() {
                   {filteredStudents.length === 0 ? (
                     <p className="px-5 py-8 text-sm text-muted-foreground text-center">No players in this filter.</p>
                   ) : (
-                    filteredStudents.map((s) => <StudentRow key={s.id} s={s} batches={batches} />)
+                    filteredStudents.map((s) => (
+                      <StudentRow
+                        key={s.id}
+                        s={s}
+                        batches={batches}
+                        showFees={isHeadCoach}
+                        onEdit={isHeadCoach ? () => setEditingStudent(s) : undefined}
+                        onDelete={isHeadCoach ? () => void deleteStudentAsHead(s) : undefined}
+                      />
+                    ))
                   )}
                 </div>
               </div>
@@ -637,20 +761,50 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Fee structures"
-                description="Head coach only — 1 / 3 / 6 / 12 month packages with distinct amounts. Other coaches cannot see this."
+                description="Edit package amounts (1 / 3 / 6 / 12 months). Assign packages when adding or editing students."
+                actions={
+                  <Button variant="outline" onClick={() => setEditingStudent(null)}>
+                    <Plus className="h-4 w-4 mr-1.5" /> Add student
+                  </Button>
+                }
               />
               <div className="grid sm:grid-cols-2 gap-3">
-                {feePackages.map((p) => (
-                  <div key={p.id} className="rounded-2xl border border-border bg-card p-5">
-                    <p className="font-display font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{p.description || `${p.months} months`}</p>
-                    <p className="mt-3 text-sm">
-                      <span className="font-medium">{inr(p.monthlyAmount)}</span>
-                      <span className="text-muted-foreground"> / month · {p.months} mo</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">Total {inr(p.totalAmount)}</p>
-                  </div>
-                ))}
+                {feePackages.map((p) => {
+                  const draft = pkgDrafts[p.id] ?? String(p.monthlyAmount);
+                  const draftNum = Number(draft) || 0;
+                  return (
+                    <div key={p.id} className="rounded-2xl border border-border bg-card p-5 space-y-3">
+                      <div>
+                        <p className="font-display font-semibold">{p.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{p.description || `${p.months} months`}</p>
+                      </div>
+                      <div className="flex items-end gap-2">
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[11px] text-muted-foreground">Monthly ₹</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-10"
+                            value={draft}
+                            onChange={(e) => setPkgDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-10 bg-primary text-primary-foreground"
+                          disabled={pkgBusy === p.id || draftNum === p.monthlyAmount}
+                          onClick={() => void savePackageAmount(p.id)}
+                        >
+                          <Save className="h-3.5 w-3.5 mr-1" />
+                          {pkgBusy === p.id ? "…" : "Save"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {p.months} mo · total {inr(draftNum * p.months)}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <StatCard label="Overdue players" value={String(overdue.length)} icon={<AlertTriangle className="h-4 w-4" />} tone={overdue.length ? "danger" : "success"} />
@@ -789,6 +943,16 @@ export default function CoachHome() {
           )}
         </div>
       )}
+
+      <StudentFormDialog
+        open={editingStudent !== undefined}
+        onClose={() => setEditingStudent(undefined)}
+        student={editingStudent ?? null}
+        batches={batches}
+        packages={feePackages as FeePackageOption[]}
+        onSubmit={saveStudentAsHead}
+        busy={studentBusy}
+      />
     </PortalShell>
   );
 }
@@ -829,7 +993,19 @@ function AlertCard({
   );
 }
 
-function StudentRow({ s, batches }: { s: Student; batches: { id: string; name: string }[] }) {
+function StudentRow({
+  s,
+  batches,
+  showFees,
+  onEdit,
+  onDelete,
+}: {
+  s: Student;
+  batches: { id: string; name: string }[];
+  showFees?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
   const batch = batches.find((b) => b.id === s.batchId);
   return (
     <div className="px-5 py-4 flex items-center justify-between gap-2 hover:bg-muted/20 transition-colors">
@@ -841,15 +1017,28 @@ function StudentRow({ s, batches }: { s: Student; batches: { id: string; name: s
           <p className="text-sm font-medium truncate">{s.name}</p>
           <p className="text-xs text-muted-foreground truncate">
             {batch?.name || "Unassigned"} · {s.role || "Player"}
+            {showFees ? ` · ${inr(s.feeAmount)}/mo` : ""}
           </p>
         </div>
       </div>
-      <div className="text-right shrink-0 space-y-0.5">
-        <p className={cn("text-sm font-medium", s.attendancePct > 0 && s.attendancePct < 70 ? "text-destructive" : "text-primary")}>
-          {s.attendancePct > 0 ? `${s.attendancePct}%` : "—"}
-        </p>
-        {s.feeStatus !== "paid" && (
-          <Badge variant="outline" className="text-[10px] text-destructive border-destructive/30">Fee due</Badge>
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="text-right space-y-0.5">
+          <p className={cn("text-sm font-medium", s.attendancePct > 0 && s.attendancePct < 70 ? "text-destructive" : "text-primary")}>
+            {s.attendancePct > 0 ? `${s.attendancePct}%` : "—"}
+          </p>
+          {showFees && s.feeStatus !== "paid" && (
+            <Badge variant="outline" className="text-[10px] text-destructive border-destructive/30">Fee due</Badge>
+          )}
+        </div>
+        {onEdit && (
+          <Button size="sm" variant="outline" className="h-8 px-2" onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {onDelete && (
+          <Button size="sm" variant="outline" className="h-8 px-2 text-destructive" onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         )}
       </div>
     </div>

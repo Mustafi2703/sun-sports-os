@@ -30,7 +30,7 @@ PIN for all: `1234`
 
 | Coach | Mobile | Notes |
 |-------|--------|--------|
-| **Harry Sir** (Head Coach) | `9033002641` | Sees fee structures; can declare academy closures / no-session days |
+| **Harry Sir** (Head Coach) | `9033002641` | Sees & edits fee structures; can add/edit students + fee plans; declare academy closures |
 | Vikas Sir | `8320901989` | No fee structures |
 | Zala Sir | `7573829550` | No fee structures |
 | Akhil Sir | `8160746822` | No fee structures |
