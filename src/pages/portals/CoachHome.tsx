@@ -295,31 +295,38 @@ export default function CoachHome() {
   };
 
   const feePlanBody = (values: StudentFormValues, shouldEnroll: boolean) => {
-    if (!shouldEnroll) return { enrollFee: false as const };
-    if (values.feePlanMode === "package" && values.packageId) {
-      return { enrollFee: true as const, packageId: values.packageId, startMonth: values.startMonth };
-    }
+    const months = Math.max(1, Number(values.planMonths) || 1);
+    const monthlyAmount = Number(values.feeAmount) || 15000;
+    const rates = {
+      feeRate1: Number(values.feeRate1) || 15000,
+      feeRate3: Number(values.feeRate3) || 14000,
+      feeRate6: Number(values.feeRate6) || 13000,
+      feeRate12: Number(values.feeRate12) || 12000,
+    };
+    const packageName =
+      months === 12 ? "1 year" : months === 1 ? "Monthly" : months === 3 ? "Quarterly" : months === 6 ? "Half year" : `${months}-month plan`;
+    const matchedPkg = feePackages.find((p) => p.months === months);
     return {
-      enrollFee: true as const,
-      startMonth: values.startMonth,
-      feeMonths: Math.max(1, Number(values.planMonths) || 1),
-      monthlyAmount: Number(values.feeAmount) || 15000,
-      packageName:
-        Number(values.planMonths) === 12
-          ? "1 year"
-          : Number(values.planMonths) === 1
-            ? "Monthly"
-            : `${values.planMonths}-month plan`,
+      ...rates,
+      feeAmount: monthlyAmount,
+      ...(shouldEnroll
+        ? {
+            enrollFee: true as const,
+            startMonth: values.startMonth,
+            feeMonths: months,
+            months,
+            monthlyAmount,
+            packageName,
+            ...(matchedPkg ? { packageId: matchedPkg.id } : {}),
+          }
+        : { enrollFee: false as const }),
     };
   };
 
   const saveStudentAsHead = async (values: StudentFormValues) => {
     setStudentBusy(true);
     try {
-      const monthly =
-        values.feePlanMode === "package"
-          ? feePackages.find((p) => p.id === values.packageId)?.monthlyAmount || Number(values.feeAmount) || 15000
-          : Number(values.feeAmount) || 15000;
+      const monthly = Number(values.feeAmount) || 15000;
       const shouldEnroll = !editingStudent || values.enrollFee;
       const body = {
         name: values.name.trim(),
@@ -338,7 +345,7 @@ export default function CoachHome() {
         toast.success(shouldEnroll ? "Student & fee plan updated" : "Student updated");
       } else {
         await api.coachCreateStudent(body);
-        toast.success("Student added with fee plan");
+        toast.success("Student added with their fee plan");
       }
       setEditingStudent(undefined);
       await refresh();

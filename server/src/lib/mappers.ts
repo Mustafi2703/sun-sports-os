@@ -38,6 +38,16 @@ export function mapStudent(s: Student) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
+  const rate = (v: number | null | undefined, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const sAny = s as Student & {
+    feeRate1?: number;
+    feeRate3?: number;
+    feeRate6?: number;
+    feeRate12?: number;
+  };
   return {
     id: s.id,
     name: s.name,
@@ -49,6 +59,12 @@ export function mapStudent(s: Student) {
     role: s.role || undefined,
     feeStatus: (s.feeStatus as "paid" | "overdue1" | "overdue8") || "paid",
     feeAmount: s.feeAmount,
+    feeRates: {
+      m1: rate(sAny.feeRate1, 15000),
+      m3: rate(sAny.feeRate3, 14000),
+      m6: rate(sAny.feeRate6, 13000),
+      m12: rate(sAny.feeRate12, 12000),
+    },
     daysOverdue: s.daysOverdue,
     attendancePct: s.attendancePct,
     scores: {

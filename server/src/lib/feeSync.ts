@@ -207,9 +207,13 @@ export async function enrollStudentOnFeePlan(
   if (packageId) {
     const pkg = await prisma.feePackage.findUnique({ where: { id: packageId } });
     if (!pkg) throw new Error("Package not found");
-    packageName = pkg.name;
+    if (!packageName) packageName = pkg.name;
     months = pkg.months;
-    monthlyAmount = pkg.monthlyAmount;
+    // Keep per-student custom amount when provided; package amount is only the default
+    const explicit = input.monthlyAmount != null && Number.isFinite(Number(input.monthlyAmount));
+    if (!explicit) {
+      monthlyAmount = pkg.monthlyAmount;
+    }
   }
   if (!packageName) {
     packageName =
@@ -280,16 +284,59 @@ export function shouldEnrollFeeFromBody(body: Record<string, unknown>): boolean 
   return false;
 }
 
+export function feeRatesFromBody(body: Record<string, unknown>, fallbacks?: {
+  feeRate1?: number;
+  feeRate3?: number;
+  feeRate6?: number;
+  feeRate12?: number;
+}) {
+  const nested =
+    body.feeRates && typeof body.feeRates === "object"
+      ? (body.feeRates as Record<string, unknown>)
+      : {};
+  const pick = (keys: string[], fallback: number) => {
+    for (const k of keys) {
+      if (body[k] != null && Number(body[k]) > 0) return Number(body[k]);
+      if (nested[k] != null && Number(nested[k]) > 0) return Number(nested[k]);
+    }
+    return fallback;
+  };
+  return {
+    feeRate1: pick(["feeRate1", "m1"], fallbacks?.feeRate1 ?? 15000),
+    feeRate3: pick(["feeRate3", "m3"], fallbacks?.feeRate3 ?? 14000),
+    feeRate6: pick(["feeRate6", "m6"], fallbacks?.feeRate6 ?? 13000),
+    feeRate12: pick(["feeRate12", "m12"], fallbacks?.feeRate12 ?? 12000),
+  };
+}
+
+export function rateForMonths(
+  months: number,
+  rates: { feeRate1: number; feeRate3: number; feeRate6: number; feeRate12: number }
+) {
+  if (months >= 12) return rates.feeRate12;
+  if (months >= 6) return rates.feeRate6;
+  if (months >= 3) return rates.feeRate3;
+  return rates.feeRate1;
+}
+
 export function feePlanInputFromBody(body: Record<string, unknown>): FeePlanInput {
   const nested =
     body.feePlan && typeof body.feePlan === "object"
       ? (body.feePlan as Record<string, unknown>)
       : {};
+  const months = Number(nested.months ?? body.feeMonths ?? body.months) || undefined;
+  let monthlyAmount =
+    Number(nested.monthlyAmount ?? body.monthlyAmount ?? body.feeAmount) || undefined;
+  // If amount not sent, derive from this student's rate card fields on the body
+  if (!monthlyAmount && months) {
+    const rates = feeRatesFromBody(body);
+    monthlyAmount = rateForMonths(months, rates);
+  }
   return {
     packageId: (nested.packageId ?? body.packageId) as string | null | undefined,
     packageName: (nested.packageName ?? body.packageName) as string | null | undefined,
-    months: Number(nested.months ?? body.feeMonths ?? body.months) || undefined,
-    monthlyAmount: Number(nested.monthlyAmount ?? body.monthlyAmount ?? body.feeAmount) || undefined,
+    months,
+    monthlyAmount,
     startMonth: String(nested.startMonth ?? body.startMonth ?? "") || undefined,
   };
 }

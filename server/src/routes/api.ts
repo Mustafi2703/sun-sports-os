@@ -16,6 +16,7 @@ import {
   enrollStudentOnFeePlan,
   ensureDefaultFeePackages,
   feePlanInputFromBody,
+  feeRatesFromBody,
   monthLabelFromDate,
   refreshStudentFeeState,
   shouldEnrollFeeFromBody,
@@ -329,6 +330,7 @@ api.post("/students", async (req, res) => {
     });
   }
   const dob = req.body.dob ? new Date(req.body.dob) : null;
+  const rates = feeRatesFromBody(req.body);
   const row = await prisma.student.create({
     data: {
       name,
@@ -338,7 +340,11 @@ api.post("/students", async (req, res) => {
       parentPhone,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
-      feeAmount: Number(req.body.feeAmount) || 15000,
+      feeAmount: Number(req.body.feeAmount) || rates.feeRate1,
+      feeRate1: rates.feeRate1,
+      feeRate3: rates.feeRate3,
+      feeRate6: rates.feeRate6,
+      feeRate12: rates.feeRate12,
       daysOverdue: Number(req.body.daysOverdue) || 0,
       attendancePct: Number(req.body.attendancePct) || 90,
       batting: Number(req.body.scores?.batting ?? req.body.batting ?? 3) || 3,
@@ -420,6 +426,18 @@ api.put("/students/:id", async (req, res) => {
         ...(req.body.role !== undefined ? { role: req.body.role } : {}),
         ...(req.body.feeStatus !== undefined ? { feeStatus: req.body.feeStatus } : {}),
         ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
+        ...(req.body.feeRate1 !== undefined ||
+        req.body.feeRate3 !== undefined ||
+        req.body.feeRate6 !== undefined ||
+        req.body.feeRate12 !== undefined ||
+        req.body.feeRates !== undefined
+          ? feeRatesFromBody(req.body, {
+              feeRate1: existing.feeRate1,
+              feeRate3: existing.feeRate3,
+              feeRate6: existing.feeRate6,
+              feeRate12: existing.feeRate12,
+            })
+          : {}),
         ...(req.body.daysOverdue !== undefined ? { daysOverdue: Number(req.body.daysOverdue) } : {}),
         ...(req.body.attendancePct !== undefined ? { attendancePct: Number(req.body.attendancePct) } : {}),
         ...(scores.batting !== undefined || req.body.batting !== undefined

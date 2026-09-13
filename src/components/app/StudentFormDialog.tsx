@@ -30,13 +30,19 @@ export type StudentFormValues = {
   daysOverdue: string;
   joinDate: string;
   medicalNotes: string;
+  /** Per-student rate card (monthly ₹) */
+  feeRate1: string;
+  feeRate3: string;
+  feeRate6: string;
+  feeRate12: string;
   /** Apply / replace fee enrollment on save */
   enrollFee: boolean;
-  feePlanMode: "package" | "duration";
-  packageId: string;
-  startMonth: string;
-  /** Used when feePlanMode === "duration" */
+  /** Active plan length for this student */
   planMonths: string;
+  startMonth: string;
+  packageId: string;
+  /** Kept for callers that still check mode — always duration-based with custom rates */
+  feePlanMode: "package" | "duration";
 };
 
 function currentMonthLabel() {
@@ -61,16 +67,25 @@ function endMonthFrom(startLabel: string, months: number): string {
 }
 
 const DURATION_PRESETS = [
-  { months: 1, label: "Monthly" },
-  { months: 3, label: "3 months" },
-  { months: 6, label: "6 months" },
-  { months: 12, label: "1 year" },
+  { months: 1, label: "1 month", rateKey: "feeRate1" as const },
+  { months: 3, label: "3 months", rateKey: "feeRate3" as const },
+  { months: 6, label: "6 months", rateKey: "feeRate6" as const },
+  { months: 12, label: "1 year", rateKey: "feeRate12" as const },
 ] as const;
 
+function rateForPlan(form: StudentFormValues, months: number): number {
+  if (months >= 12) return Number(form.feeRate12) || 12000;
+  if (months >= 6) return Number(form.feeRate6) || 13000;
+  if (months >= 3) return Number(form.feeRate3) || 14000;
+  return Number(form.feeRate1) || 15000;
+}
+
 const empty = (batches: Batch[], packages: FeePackageOption[]): StudentFormValues => {
-  const annual = packages.find((p) => p.months === 12 && p.active !== false);
-  const monthly = packages.find((p) => p.months === 1 && p.active !== false);
-  const first = annual || monthly || packages[0];
+  const byMonths = (m: number) => packages.find((p) => p.months === m && p.active !== false);
+  const r1 = byMonths(1)?.monthlyAmount || batches[0]?.monthlyFee || 15000;
+  const r3 = byMonths(3)?.monthlyAmount || 14000;
+  const r6 = byMonths(6)?.monthlyAmount || 13000;
+  const r12 = byMonths(12)?.monthlyAmount || 12000;
   return {
     name: "",
     dob: "",
@@ -79,15 +94,19 @@ const empty = (batches: Batch[], packages: FeePackageOption[]): StudentFormValue
     batchId: batches[0]?.id || "",
     role: "",
     feeStatus: "paid",
-    feeAmount: String(first?.monthlyAmount || batches[0]?.monthlyFee || 15000),
+    feeAmount: String(r1),
     daysOverdue: "0",
     joinDate: new Date().toISOString().slice(0, 10),
     medicalNotes: "",
+    feeRate1: String(r1),
+    feeRate3: String(r3),
+    feeRate6: String(r6),
+    feeRate12: String(r12),
     enrollFee: true,
-    feePlanMode: first ? "package" : "duration",
-    packageId: first?.id || "",
+    planMonths: "1",
     startMonth: currentMonthLabel(),
-    planMonths: String(first?.months || 12),
+    packageId: byMonths(1)?.id || "",
+    feePlanMode: "duration",
   };
 };
 
@@ -125,9 +144,15 @@ export function StudentFormDialog({
   useEffect(() => {
     if (!open) return;
     if (student) {
-      const pkgId = activeEnrollment?.packageId || "";
-      const matched = pkgId ? activePackages.find((p) => p.id === pkgId) : undefined;
-      const hasPlan = !!(activeEnrollment?.months || matched);
+      const rates = student.feeRates || {
+        m1: student.feeAmount || 15000,
+        m3: 14000,
+        m6: 13000,
+        m12: 12000,
+      };
+      const hasPlan = !!(activeEnrollment?.months);
+      const months = activeEnrollment?.months || 1;
+      const matched = activePackages.find((p) => p.months === months);
       setForm({
         name: student.name,
         dob: student.dob || "",
@@ -140,11 +165,15 @@ export function StudentFormDialog({
         daysOverdue: String(student.daysOverdue),
         joinDate: student.joinDate || "",
         medicalNotes: student.medicalNotes || "",
+        feeRate1: String(rates.m1),
+        feeRate3: String(rates.m3),
+        feeRate6: String(rates.m6),
+        feeRate12: String(rates.m12),
         enrollFee: !hasPlan,
-        feePlanMode: matched ? "package" : "duration",
-        packageId: matched?.id || activePackages[0]?.id || "",
+        planMonths: String(months),
         startMonth: activeEnrollment?.startMonth || currentMonthLabel(),
-        planMonths: String(activeEnrollment?.months || matched?.months || 12),
+        packageId: matched?.id || activeEnrollment?.packageId || "",
+        feePlanMode: "duration",
       });
     } else {
       setForm(empty(batches, activePackages));
@@ -156,16 +185,8 @@ export function StudentFormDialog({
 
   const selectedBatch = batches.find((b) => b.id === form.batchId);
   const assignedCoach = coaches.find((c) => c.id === selectedBatch?.coachId);
-  const selectedPkg = activePackages.find((p) => p.id === form.packageId);
-
-  const planMonths =
-    form.feePlanMode === "package"
-      ? selectedPkg?.months || Number(form.planMonths) || 1
-      : Math.max(1, Number(form.planMonths) || 1);
-  const monthlyAmount =
-    form.feePlanMode === "package"
-      ? selectedPkg?.monthlyAmount || Number(form.feeAmount) || 15000
-      : Number(form.feeAmount) || 15000;
+  const planMonths = Math.max(1, Number(form.planMonths) || 1);
+  const monthlyAmount = rateForPlan(form, planMonths);
   const endMonth = endMonthFrom(form.startMonth, planMonths);
   const totalAmount = monthlyAmount * planMonths;
 
@@ -204,16 +225,7 @@ export function StudentFormDialog({
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Batch">
-              <Select
-                value={form.batchId}
-                onValueChange={(v) => {
-                  set("batchId", v);
-                  const b = batches.find((x) => x.id === v);
-                  if (b?.monthlyFee && form.feePlanMode === "duration") {
-                    set("feeAmount", String(b.monthlyFee));
-                  }
-                }}
-              >
+              <Select value={form.batchId} onValueChange={(v) => set("batchId", v)}>
                 <SelectTrigger><SelectValue placeholder="Batch" /></SelectTrigger>
                 <SelectContent>
                   {batches.map((b) => (
@@ -235,13 +247,12 @@ export function StudentFormDialog({
             </p>
           )}
 
-          {/* Fee plan */}
           <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">Fee plan</p>
+                <p className="text-sm font-medium">This student’s fee structure</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Choose monthly / package and start month — dues are created through the end date.
+                  Each student has their own amounts for 1 / 3 / 6 / 12 month plans.
                 </p>
               </div>
               {student && (
@@ -266,100 +277,53 @@ export function StudentFormDialog({
               </p>
             )}
 
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["feeRate1", "1 month ₹/mo"],
+                  ["feeRate3", "3 months ₹/mo"],
+                  ["feeRate6", "6 months ₹/mo"],
+                  ["feeRate12", "1 year ₹/mo"],
+                ] as const
+              ).map(([key, label]) => (
+                <Field key={key} label={label}>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form[key]}
+                    onChange={(e) => set(key, e.target.value)}
+                  />
+                </Field>
+              ))}
+            </div>
+
             {(form.enrollFee || !student) && (
               <>
-                <div className="flex gap-1 p-1 rounded-lg bg-background/70 border border-border/60">
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex-1 text-xs py-2 rounded-md transition-colors",
-                      form.feePlanMode === "package" ? "bg-primary/20 font-medium" : "text-muted-foreground"
-                    )}
-                    onClick={() => {
-                      set("feePlanMode", "package");
-                      if (selectedPkg) set("feeAmount", String(selectedPkg.monthlyAmount));
-                    }}
-                  >
-                    Select package
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex-1 text-xs py-2 rounded-md transition-colors",
-                      form.feePlanMode === "duration" ? "bg-primary/20 font-medium" : "text-muted-foreground"
-                    )}
-                    onClick={() => set("feePlanMode", "duration")}
-                  >
-                    Monthly / duration
-                  </button>
-                </div>
-
-                {form.feePlanMode === "package" ? (
-                  <Field label="Package">
-                    <Select
-                      value={form.packageId}
-                      onValueChange={(v) => {
-                        set("packageId", v);
-                        const p = activePackages.find((x) => x.id === v);
-                        if (p) {
-                          set("feeAmount", String(p.monthlyAmount));
-                          set("planMonths", String(p.months));
-                        }
-                      }}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Choose package" /></SelectTrigger>
-                      <SelectContent>
-                        {activePackages.length === 0 ? (
-                          <SelectItem value="__none" disabled>No packages — use duration</SelectItem>
-                        ) : (
-                          activePackages.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name} · {p.months} mo · ₹{p.monthlyAmount.toLocaleString("en-IN")}/mo
-                            </SelectItem>
-                          ))
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1.5">Enroll on plan</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DURATION_PRESETS.map((d) => (
+                      <button
+                        key={d.months}
+                        type="button"
+                        className={cn(
+                          "text-xs px-2.5 py-1.5 rounded-lg border transition-colors",
+                          Number(form.planMonths) === d.months
+                            ? "border-primary/50 bg-primary/15 text-foreground"
+                            : "border-border text-muted-foreground hover:border-primary/30"
                         )}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {DURATION_PRESETS.map((d) => (
-                        <button
-                          key={d.months}
-                          type="button"
-                          className={cn(
-                            "text-xs px-2.5 py-1.5 rounded-lg border transition-colors",
-                            Number(form.planMonths) === d.months
-                              ? "border-primary/50 bg-primary/15 text-foreground"
-                              : "border-border text-muted-foreground hover:border-primary/30"
-                          )}
-                          onClick={() => set("planMonths", String(d.months))}
-                        >
-                          {d.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Duration (months)">
-                        <Input
-                          type="number"
-                          min={1}
-                          max={36}
-                          value={form.planMonths}
-                          onChange={(e) => set("planMonths", e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Monthly fee ₹">
-                        <Input
-                          type="number"
-                          value={form.feeAmount}
-                          onChange={(e) => set("feeAmount", e.target.value)}
-                        />
-                      </Field>
-                    </div>
-                  </>
-                )}
+                        onClick={() => {
+                          set("planMonths", String(d.months));
+                          set("feeAmount", form[d.rateKey]);
+                          const pkg = activePackages.find((p) => p.months === d.months);
+                          set("packageId", pkg?.id || "");
+                        }}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 <Field label="Fee start month">
                   <Select value={form.startMonth} onValueChange={(v) => set("startMonth", v)}>
@@ -381,7 +345,9 @@ export function StudentFormDialog({
                     <span className="text-muted-foreground"> ({planMonths} dues)</span>
                   </p>
                   <p>
-                    <span className="text-muted-foreground">₹{monthlyAmount.toLocaleString("en-IN")}/mo · total </span>
+                    <span className="text-muted-foreground">This student: </span>
+                    <span className="font-medium">₹{monthlyAmount.toLocaleString("en-IN")}/mo</span>
+                    <span className="text-muted-foreground"> · total </span>
                     <span className="font-medium">₹{totalAmount.toLocaleString("en-IN")}</span>
                   </p>
                 </div>
@@ -397,15 +363,15 @@ export function StudentFormDialog({
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button
             className="bg-primary text-primary-foreground"
-            disabled={
-              busy ||
-              !form.name.trim() ||
-              form.parentPhone.replace(/\D/g, "").length < 10 ||
-              ((form.enrollFee || !student) &&
-                form.feePlanMode === "package" &&
-                !form.packageId)
-            }
-            onClick={() => void onSubmit(form)}
+            disabled={busy || !form.name.trim() || form.parentPhone.replace(/\D/g, "").length < 10}
+            onClick={() => {
+              const months = Math.max(1, Number(form.planMonths) || 1);
+              void onSubmit({
+                ...form,
+                feeAmount: String(rateForPlan(form, months)),
+                feePlanMode: "duration",
+              });
+            }}
           >
             {busy ? "Saving…" : student ? "Save changes" : "Add student & set plan"}
           </Button>

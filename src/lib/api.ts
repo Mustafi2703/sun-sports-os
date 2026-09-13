@@ -50,6 +50,7 @@ export interface Student {
   role?: string;
   feeStatus: FeeStatus;
   feeAmount: number;
+  feeRates?: { m1: number; m3: number; m6: number; m12: number };
   daysOverdue: number;
   attendancePct: number;
   scores: { batting: number; bowling: number; fielding: number; fitness: number; temperament: number };
