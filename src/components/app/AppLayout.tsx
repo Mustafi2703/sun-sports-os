@@ -1,12 +1,14 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Home, Users, Layers, CreditCard, CalendarCheck, TrendingUp,
-  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut, ClipboardList
+  MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut, ClipboardList,
+  AlertTriangle,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAcademy } from "@/context/AcademyContext";
 import { useAuth } from "@/context/AuthContext";
 import { initialsOf } from "@/lib/api";
@@ -34,11 +36,20 @@ const MOBILE_NAV = [
   { to: "/app/more", label: "More", icon: MoreHorizontal },
 ];
 
+type HeaderNote = {
+  id: string;
+  title: string;
+  desc: string;
+  tone: "danger" | "warning" | "info" | "success";
+  to: string;
+};
+
 export const AppLayout = ({ children }: { children: ReactNode }) => {
-  const { academyName } = useAcademy();
+  const { academyName, overdueCount, overdue8Count, students, recentActivity, inr } = useAcademy();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -56,6 +67,65 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
   };
 
   const userInitials = user?.name ? initialsOf(user.name) : "SS";
+
+  const notifications = useMemo(() => {
+    const items: HeaderNote[] = [];
+    if (overdue8Count > 0) {
+      items.push({
+        id: "overdue8",
+        title: `${overdue8Count} student${overdue8Count === 1 ? "" : "s"} overdue 8+ days`,
+        desc: "Open Fees to follow up on critical dues.",
+        tone: "danger",
+        to: "/app/fees",
+      });
+    }
+    if (overdueCount > overdue8Count) {
+      const mild = overdueCount - overdue8Count;
+      items.push({
+        id: "overdue",
+        title: `${mild} fee reminder${mild === 1 ? "" : "s"}`,
+        desc: `${inr(students.filter((s) => s.feeStatus !== "paid").reduce((a, s) => a + (s.feeAmount || 0), 0))} pending overall.`,
+        tone: "warning",
+        to: "/app/fees",
+      });
+    }
+    const atRisk = students.filter((s) => s.attendancePct > 0 && s.attendancePct < 70).length;
+    if (atRisk > 0) {
+      items.push({
+        id: "attendance",
+        title: `${atRisk} student${atRisk === 1 ? "" : "s"} below 70% attendance`,
+        desc: "Review Attendance and message parents.",
+        tone: "warning",
+        to: "/app/attendance",
+      });
+    }
+    for (const a of recentActivity.slice(0, 4)) {
+      items.push({
+        id: `act-${a.text}-${a.time}`,
+        title: a.text,
+        desc: a.time || "Recent",
+        tone: a.tone === "warning" ? "warning" : a.tone === "success" ? "success" : "info",
+        to: "/app",
+      });
+    }
+    if (items.length === 0) {
+      items.push({
+        id: "clear",
+        title: "You're all caught up",
+        desc: "No fee or attendance alerts right now.",
+        tone: "success",
+        to: "/app",
+      });
+    }
+    return items.slice(0, 8);
+  }, [overdue8Count, overdueCount, students, recentActivity, inr]);
+
+  const alertCount = notifications.filter((n) => n.tone === "danger" || n.tone === "warning").length;
+
+  const openNote = (to: string) => {
+    setNotesOpen(false);
+    navigate(to);
+  };
 
   return (
     <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
@@ -125,6 +195,60 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                 >
                   <Menu className="h-5 w-5" />
                 </button>
+                <Popover open={notesOpen} onOpenChange={setNotesOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="relative h-11 w-11 rounded-lg border border-border flex items-center justify-center hover:bg-muted/50 transition-colors shrink-0"
+                      aria-label="Notifications"
+                    >
+                      <Bell className="h-4 w-4" />
+                      {alertCount > 0 && (
+                        <Badge className="absolute -top-1 -right-1 h-4 min-w-[1rem] px-1 bg-primary text-primary-foreground text-[10px] border-0">
+                          {alertCount > 9 ? "9+" : alertCount}
+                        </Badge>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    side="bottom"
+                    sideOffset={8}
+                    className="w-[min(22rem,calc(100vw-1.5rem))] p-0 overflow-hidden z-[60]"
+                  >
+                    <div className="px-4 py-3 border-b border-border text-left">
+                      <p className="text-sm font-semibold">Notifications</p>
+                      <p className="text-xs text-muted-foreground">Fees, attendance & recent activity</p>
+                    </div>
+                    <div className="max-h-[min(24rem,60vh)] overflow-y-auto divide-y divide-border">
+                      {notifications.map((n) => (
+                        <button
+                          key={n.id}
+                          type="button"
+                          onClick={() => openNote(n.to)}
+                          className="w-full text-left px-4 py-3 flex gap-3 hover:bg-muted/30 transition-colors"
+                        >
+                          <span
+                            className={cn(
+                              "mt-1.5 h-2 w-2 rounded-full shrink-0",
+                              n.tone === "danger" && "bg-destructive",
+                              n.tone === "warning" && "bg-amber-400",
+                              n.tone === "success" && "bg-primary",
+                              n.tone === "info" && "bg-blue-400"
+                            )}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="text-sm font-medium block leading-snug">{n.title}</span>
+                            <span className="text-xs text-muted-foreground block mt-0.5">{n.desc}</span>
+                          </span>
+                          {(n.tone === "danger" || n.tone === "warning") && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-1" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <div className="min-w-0">
                   <h1 className="font-display font-semibold text-base sm:text-lg truncate">
                     {NAV.find(n => n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))?.label ?? "Dashboard"}
@@ -133,14 +257,6 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  className="relative h-11 w-11 rounded-lg border border-border flex items-center justify-center hover:bg-muted/50 transition-colors"
-                  aria-label="Notifications"
-                >
-                  <Bell className="h-4 w-4" />
-                  <Badge className="absolute -top-1 -right-1 h-4 min-w-[1rem] px-1 bg-primary text-primary-foreground text-[10px] border-0">3</Badge>
-                </button>
                 <Button variant="ghost" size="sm" className="hidden sm:flex h-9 text-xs" onClick={signOut}>
                   <LogOut className="h-3.5 w-3.5 mr-1.5" /> Sign out
                 </Button>
