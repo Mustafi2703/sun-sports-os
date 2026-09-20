@@ -195,6 +195,14 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                 >
                   <Menu className="h-5 w-5" />
                 </button>
+                <div className="min-w-0">
+                  <h1 className="font-display font-semibold text-base sm:text-lg truncate">
+                    {NAV.find(n => n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))?.label ?? "Dashboard"}
+                  </h1>
+                  <p className="text-[11px] text-muted-foreground truncate hidden sm:block">{academyName}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <Popover open={notesOpen} onOpenChange={setNotesOpen}>
                   <PopoverTrigger asChild>
                     <button
@@ -211,9 +219,10 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
-                    align="start"
+                    align="end"
                     side="bottom"
                     sideOffset={8}
+                    collisionPadding={12}
                     className="w-[min(22rem,calc(100vw-1.5rem))] p-0 overflow-hidden z-[60]"
                   >
                     <div className="px-4 py-3 border-b border-border text-left">
@@ -249,14 +258,6 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <div className="min-w-0">
-                  <h1 className="font-display font-semibold text-base sm:text-lg truncate">
-                    {NAV.find(n => n.end ? location.pathname === n.to : location.pathname.startsWith(n.to))?.label ?? "Dashboard"}
-                  </h1>
-                  <p className="text-[11px] text-muted-foreground truncate hidden sm:block">{academyName}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
                 <Button variant="ghost" size="sm" className="hidden sm:flex h-9 text-xs" onClick={signOut}>
                   <LogOut className="h-3.5 w-3.5 mr-1.5" /> Sign out
                 </Button>

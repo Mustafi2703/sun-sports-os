@@ -7,10 +7,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme="dark"
-      position="top-left"
+      position="top-right"
       richColors
       closeButton
-      offset={{ top: "max(1rem, env(safe-area-inset-top))", left: "1rem" }}
+      offset={{ top: "max(1rem, env(safe-area-inset-top))", right: "1rem" }}
       className="toaster group"
       toastOptions={{
         classNames: {
