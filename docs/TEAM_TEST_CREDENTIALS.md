@@ -3,7 +3,7 @@
 **App (live):** https://sun-sports-os.vercel.app  
 **API (live):** https://sun-sports-api-production.up.railway.app  
 
-Use **Mobile number + PIN** on every portal. OTP SMS will be connected later (OTP tab remains for when SMS is live).
+Use **Mobile number + PIN** on every portal. There is no OTP login. Forgot PIN texts a reset code, then a new PIN. Parents are asked to choose their own PIN on first sign-in. The shared PIN stays `1234` until they do. The rollout intro SMS is not sent from the app yet.
 
 **Default PIN for all seeded accounts:** `1234`
 
@@ -31,7 +31,7 @@ PIN for all: `1234`
 | Coach | Mobile | Notes |
 |-------|--------|--------|
 | **Harry Sir** (Head Coach) | `9033002641` | Sees & edits fee structures; can add/edit students + fee plans; declare academy closures |
-| Vikas Sir | `8320901989` | No fee structures |
+| Vikas Sir | `8320901989` | No fee details. Sees every player and can mark attendance and scores. |
 | Zala Sir | `7573829550` | No fee structures |
 | Akhil Sir | `8160746822` | No fee structures |
 | Siddhant Sir | `9265752962` | No fee structures |
@@ -76,6 +76,6 @@ PIN for all: `1234`
 ## 5. Notes
 
 - Login no longer shows “quick fill / select user” chips — type the mobile number.
-- OTP remains available for later SMS (MSG91 / Twilio). Until then, use **Mobile + PIN**.
+- Sign-in is PIN only. Forgot PIN uses SMS (MSG91 / Twilio). Until SMS is live, a temporary code may show on screen outside production.
 - Fee packages: Monthly ₹15k · Quarterly ₹14k/mo · Half year ₹13k/mo · Annual ₹12k/mo.
 - Do not share this file publicly after delivery; rotate PINs if numbers are real production WhatsApp lines.

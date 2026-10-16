@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   api,
   initialsColor,
@@ -60,6 +61,7 @@ export default function CoachHome() {
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
 
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [assessId, setAssessId] = useState("");
   const [scoreDraft, setScoreDraft] = useState({ batting: 3, bowling: 3, fielding: 3, fitness: 3, temperament: 3 });
   const [noteText, setNoteText] = useState("");
@@ -418,7 +420,11 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Welcome back"
-                description={`Here's what's happening across your batches, ${data.coach.name.split(" ")[0]}.`}
+                description={
+                  isHeadCoach
+                    ? `Here's the academy, ${data.coach.name.split(" ")[0]}.`
+                    : `All academy players, ${data.coach.name.split(" ")[0]}. Fees stay with the head coach.`
+                }
                 actions={
                   <Button className="bg-primary text-primary-foreground" onClick={() => setTab("attendance")}>
                     <CalendarCheck className="h-4 w-4 mr-2" /> Mark attendance
@@ -426,7 +432,7 @@ export default function CoachHome() {
                 }
               />
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", isHeadCoach ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
                 <StatCard label="Batches" value={String(batches.length)} icon={<Layers className="h-4 w-4" />} />
                 <StatCard label="Players" value={String(students.length)} icon={<Users className="h-4 w-4" />} />
                 <StatCard
@@ -435,29 +441,33 @@ export default function CoachHome() {
                   icon={<CalendarCheck className="h-4 w-4" />}
                   tone={avgAtt > 0 && avgAtt < 70 ? "warning" : "success"}
                 />
-                <StatCard
-                  label="Overdue fees"
-                  value={String(overdue.length)}
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  hint={overdue.length ? inr(overdueAmount) : "All clear"}
-                  tone={overdue.length ? "danger" : "success"}
-                />
+                {isHeadCoach && (
+                  <StatCard
+                    label="Overdue fees"
+                    value={String(overdue.length)}
+                    icon={<AlertTriangle className="h-4 w-4" />}
+                    hint={overdue.length ? inr(overdueAmount) : "All clear"}
+                    tone={overdue.length ? "danger" : "success"}
+                  />
+                )}
               </div>
 
-              <div className="grid lg:grid-cols-3 gap-4">
-                <AlertCard
-                  tone={overdue.length ? "danger" : "info"}
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  title={overdue.length ? `${overdue.length} player(s) with overdue fees` : "No fee alerts"}
-                  desc={overdue.length ? `${inr(overdueAmount)} pending across your batches.` : "All players paid up."}
-                  cta="Review fees"
-                  onClick={() => { if (isHeadCoach) { setStudentFilter("overdue"); setTab("fees"); } else setTab("students"); }}
-                />
+              <div className={cn("grid gap-4", isHeadCoach ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
+                {isHeadCoach && (
+                  <AlertCard
+                    tone={overdue.length ? "danger" : "info"}
+                    icon={<AlertTriangle className="h-4 w-4" />}
+                    title={overdue.length ? `${overdue.length} player(s) with overdue fees` : "No fee alerts"}
+                    desc={overdue.length ? `${inr(overdueAmount)} pending across the academy.` : "All players paid up."}
+                    cta="Review fees"
+                    onClick={() => { setStudentFilter("overdue"); setTab("fees"); }}
+                  />
+                )}
                 <AlertCard
                   tone={lowAtt.length ? "warning" : "info"}
                   icon={<TrendingUp className="h-4 w-4" />}
                   title={lowAtt.length ? `${lowAtt.length} below 70% attendance` : "Attendance healthy"}
-                  desc="Based on recorded sessions in your batches."
+                  desc="Based on recorded sessions across the academy."
                   cta="View players"
                   onClick={() => { setStudentFilter("lowatt"); setTab("students"); }}
                 />
@@ -472,10 +482,10 @@ export default function CoachHome() {
               </div>
 
               <div className="grid lg:grid-cols-5 gap-4">
-                <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-5">
+                <div className="lg:col-span-3 min-w-0 rounded-2xl border border-border bg-card p-5 overflow-hidden">
                   <div className="mb-4">
                     <h3 className="font-display font-semibold">Attendance trend</h3>
-                    <p className="text-xs text-muted-foreground">Your batches — last 4 weeks</p>
+                    <p className="text-xs text-muted-foreground">All batches — last 4 weeks</p>
                   </div>
                   <div className="h-56">
                     <ResponsiveContainer width="100%" height="100%">
@@ -493,8 +503,8 @@ export default function CoachHome() {
                 <div className="lg:col-span-2 rounded-2xl border border-border bg-card overflow-hidden">
                   <div className="p-5 border-b border-border flex items-center justify-between">
                     <div>
-                      <h3 className="font-display font-semibold">Your batches</h3>
-                      <p className="text-xs text-muted-foreground">{students.length} players assigned</p>
+                      <h3 className="font-display font-semibold">Academy batches</h3>
+                      <p className="text-xs text-muted-foreground">{students.length} players</p>
                     </div>
                     <Button size="sm" variant="ghost" className="text-primary" onClick={() => setTab("attendance")}>
                       Mark <ArrowRight className="ml-1 h-3 w-3" />
@@ -502,7 +512,7 @@ export default function CoachHome() {
                   </div>
                   <div className="divide-y divide-border">
                     {batches.length === 0 ? (
-                      <p className="px-5 py-6 text-sm text-muted-foreground">No batches assigned yet.</p>
+                      <p className="px-5 py-6 text-sm text-muted-foreground">No batches yet.</p>
                     ) : (
                       batches.map((b) => (
                         <div key={b.id} className="px-5 py-4 flex items-center justify-between gap-2 hover:bg-muted/20 transition-colors">
@@ -544,7 +554,11 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Players"
-                description={isHeadCoach ? "Add, edit, and enroll students on fee packages." : "Students in your assigned batches."}
+                description={
+                  isHeadCoach
+                    ? "Add, edit, and enroll students on fee packages."
+                    : "Every academy player. Open a player for details. Attendance and scores can be updated for anyone."
+                }
                 actions={
                   isHeadCoach ? (
                     <Button className="bg-primary text-primary-foreground" onClick={() => setEditingStudent(null)}>
@@ -585,6 +599,7 @@ export default function CoachHome() {
                         s={s}
                         batches={batches}
                         showFees={isHeadCoach}
+                        onOpen={() => setDetailId(s.id)}
                         onEdit={isHeadCoach ? () => setEditingStudent(s) : undefined}
                         onDelete={isHeadCoach ? () => void deleteStudentAsHead(s) : undefined}
                       />
@@ -599,7 +614,7 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Attendance"
-                description="Load a past date to edit logged marks. Leave & no-session include parent-facing reasons."
+                description="Any coach can mark any batch. Load a past date to edit logged marks."
                 actions={
                   <Button
                     className="bg-primary text-primary-foreground"
@@ -857,7 +872,7 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader title="Assessments" description="Update monthly performance scores and coach notes." />
               {students.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No players in your batches yet.</p>
+                <p className="text-sm text-muted-foreground text-center py-8">No players yet.</p>
               ) : (
                 <div className="grid lg:grid-cols-2 gap-4">
                   <div className="space-y-4">
@@ -951,6 +966,14 @@ export default function CoachHome() {
         </div>
       )}
 
+      <PlayerDetail
+        student={students.find((s) => s.id === detailId) || null}
+        batches={batches}
+        notes={notes}
+        showFees={isHeadCoach}
+        onClose={() => setDetailId(null)}
+      />
+
       <StudentFormDialog
         open={editingStudent !== undefined}
         onClose={() => setEditingStudent(undefined)}
@@ -1000,22 +1023,109 @@ function AlertCard({
   );
 }
 
+function PlayerDetail({
+  student,
+  batches,
+  notes,
+  showFees,
+  onClose,
+}: {
+  student: Student | null;
+  batches: { id: string; name: string }[];
+  notes: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
+  showFees: boolean;
+  onClose: () => void;
+}) {
+  const batch = batches.find((b) => b.id === student?.batchId);
+  const playerNotes = notes.filter((n) => n.studentId === student?.id).slice(0, 6);
+  return (
+    <Dialog open={!!student} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[85dvh] overflow-y-auto">
+        {student && (
+          <>
+            <DialogHeader>
+              <DialogTitle>{student.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                {batch?.name || "Unassigned"} · {student.role || "Player"}
+                {student.age ? ` · ${student.age} yrs` : ""}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Attendance</p>
+                  <p className="font-medium">{student.attendancePct > 0 ? `${student.attendancePct}%` : "—"}</p>
+                </div>
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Parent</p>
+                  <p className="font-medium truncate">{student.parentName || "—"}</p>
+                  <p className="text-xs text-muted-foreground">{student.parentPhone || ""}</p>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border px-3 py-2 space-y-1">
+                <p className="text-[11px] text-muted-foreground">Scores</p>
+                <p>Batting {student.scores.batting} · Bowling {student.scores.bowling}</p>
+                <p>Fielding {student.scores.fielding} · Fitness {student.scores.fitness} · Temperament {student.scores.temperament}</p>
+              </div>
+              {showFees && (
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Fee</p>
+                  <p className="font-medium">
+                    {inr(student.feeAmount)} / month · {student.feeStatus === "paid" ? "Paid" : "Due"}
+                  </p>
+                </div>
+              )}
+              {student.medicalNotes ? (
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Medical notes</p>
+                  <p>{student.medicalNotes}</p>
+                </div>
+              ) : null}
+              {playerNotes.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Coach notes</p>
+                  {playerNotes.map((n) => (
+                    <div key={n.id} className="rounded-lg border border-border px-3 py-2">
+                      <p className="text-xs text-muted-foreground">{n.author || "Coach"}</p>
+                      <p>{n.note}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function StudentRow({
   s,
   batches,
   showFees,
+  onOpen,
   onEdit,
   onDelete,
 }: {
   s: Student;
   batches: { id: string; name: string }[];
   showFees?: boolean;
+  onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
   const batch = batches.find((b) => b.id === s.batchId);
   return (
-    <div className="px-5 py-4 flex items-center justify-between gap-2 hover:bg-muted/20 transition-colors">
+    <div
+      className="px-5 py-4 flex items-center justify-between gap-2 hover:bg-muted/20 transition-colors cursor-pointer"
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen?.();
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <div className="flex items-center gap-3 min-w-0">
         <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>
           {initialsOf(s.name)}
@@ -1038,12 +1148,12 @@ function StudentRow({
           )}
         </div>
         {onEdit && (
-          <Button size="sm" variant="outline" className="h-8 px-2" onClick={onEdit}>
+          <Button size="sm" variant="outline" className="h-8 px-2" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
         )}
         {onDelete && (
-          <Button size="sm" variant="outline" className="h-8 px-2 text-destructive" onClick={onDelete}>
+          <Button size="sm" variant="outline" className="h-8 px-2 text-destructive" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         )}

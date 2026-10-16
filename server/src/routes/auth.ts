@@ -4,12 +4,14 @@ import {
   normalizePhone,
   portalToRole,
   requireAuth,
+  hashPin,
   signToken,
   verifyPin,
   type AuthUser,
 } from "../lib/auth.js";
 import { authMethods, createAndSendOtp, pinAuthAllowed, purgeExpiredOtps, verifyOtpCode } from "../lib/otp.js";
 import { coachLinkedToPhone, studentLinkedToParentPhone } from "../lib/ensureUser.js";
+import { sendPinSms, shouldEchoOtp } from "../lib/sms.js";
 
 export const authRouter = Router();
 
@@ -20,7 +22,8 @@ function toAuthUser(user: {
   name: string;
   coachId: string | null;
   parentPhone: string | null;
-}): AuthUser {
+  mustChangePin?: boolean;
+}): AuthUser & { mustChangePin: boolean } {
   return {
     id: user.id,
     phone: user.phone,
@@ -28,10 +31,11 @@ function toAuthUser(user: {
     name: user.name,
     coachId: user.coachId,
     parentPhone: user.parentPhone,
+    mustChangePin: Boolean(user.mustChangePin),
   };
 }
 
-function loginResponse(user: AuthUser) {
+function loginResponse(user: ReturnType<typeof toAuthUser>) {
   return {
     token: signToken(user),
     user: {
@@ -41,8 +45,17 @@ function loginResponse(user: AuthUser) {
       name: user.name,
       coachId: user.coachId,
       parentPhone: user.parentPhone,
+      mustChangePin: Boolean(user.mustChangePin),
     },
   };
+}
+
+function resetChallengePortal(portal: string) {
+  return `${portal}:reset`;
+}
+
+function generateTempPin(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 /**
@@ -208,15 +221,130 @@ authRouter.post("/login", async (req, res) => {
   }
 });
 
+/**
+ * Forgotten PIN — step 1. Text a one-time code to an onboarded parent, coach, or admin.
+ * This is not a login method.
+ */
+authRouter.post("/forgot-pin/request", async (req, res) => {
+  try {
+    await purgeExpiredOtps().catch(() => undefined);
+    const phone = normalizePhone(req.body.phone);
+    const portal = portalToRole(String(req.body.portal || ""));
+    if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
+    if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
+
+    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
+    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
+    if (notOnboarded || !user) {
+      return res.status(403).json({ error: notOnboarded || "This phone is not onboarded for this portal." });
+    }
+
+    const result = await createAndSendOtp(phone, resetChallengePortal(portal), "reset");
+    res.json({
+      ok: true,
+      expiresInSeconds: result.expiresInSeconds,
+      smsDelivered: result.smsDelivered,
+      message: result.smsDelivered
+        ? "Reset code sent by SMS"
+        : result.devOtp
+          ? "Reset code generated (SMS not configured — use the on-screen code)"
+          : "Could not send the reset code. Try again in a moment.",
+      ...(result.devOtp ? { devOtp: result.devOtp } : {}),
+    });
+  } catch (e) {
+    console.error("forgot-pin request error:", e);
+    res.status(500).json({ error: "Could not send reset code — try again" });
+  }
+});
+
+/**
+ * Forgotten PIN — step 2. After the OTP checks out, issue a new PIN by SMS
+ * and require a change on the next sign-in.
+ */
+authRouter.post("/forgot-pin/confirm", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const otp = String(req.body.otp || req.body.code || "").trim();
+    const portal = portalToRole(String(req.body.portal || ""));
+    if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
+    if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
+    if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the code from SMS" });
+
+    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
+    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
+    if (notOnboarded || !user) {
+      return res.status(403).json({ error: notOnboarded || "This phone is not onboarded for this portal." });
+    }
+
+    const check = await verifyOtpCode(phone, resetChallengePortal(portal), otp);
+    if (!check.ok) return res.status(401).json({ error: check.error });
+
+    const tempPin = generateTempPin();
+    const echo = shouldEchoOtp();
+    const sms = await sendPinSms(phone, tempPin);
+    if (!sms.delivered && !echo) {
+      return res.status(503).json({
+        error: "Could not text the new PIN. Your current PIN is unchanged — try again shortly.",
+      });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        pinHash: await hashPin(tempPin),
+        mustChangePin: true,
+        pinChangedAt: null,
+      },
+    });
+
+    res.json({
+      ok: true,
+      pinSent: sms.delivered,
+      message: sms.delivered
+        ? "A new PIN was sent by SMS. Sign in with it, then choose your own PIN."
+        : "SMS is not live yet. Sign in with the temporary PIN shown here, then choose your own.",
+      ...(echo && !sms.delivered ? { devPin: tempPin } : {}),
+    });
+  } catch (e) {
+    console.error("forgot-pin confirm error:", e);
+    res.status(500).json({ error: "Could not reset PIN — try again" });
+  }
+});
+
+/** Signed-in PIN change. First login and post-recovery skip the current PIN. */
+authRouter.post("/change-pin", requireAuth(), async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) return res.status(401).json({ error: "User not found" });
+
+    const newPin = String(req.body.newPin || "").replace(/\D/g, "");
+    const currentPin = String(req.body.currentPin || "").trim();
+    if (!/^\d{4,8}$/.test(newPin)) {
+      return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+    }
+
+    if (!user.mustChangePin) {
+      if (!currentPin) return res.status(400).json({ error: "Current PIN required" });
+      const ok = await verifyPin(currentPin, user.pinHash);
+      if (!ok) return res.status(401).json({ error: "Current PIN is incorrect" });
+    }
+
+    const same = await verifyPin(newPin, user.pinHash);
+    if (same) return res.status(400).json({ error: "Choose a PIN that is different from the current one" });
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { pinHash: await hashPin(newPin), mustChangePin: false, pinChangedAt: new Date() },
+    });
+    res.json({ ok: true, user: toAuthUser(updated) });
+  } catch (e) {
+    console.error("change-pin error:", e);
+    res.status(500).json({ error: "Could not change PIN — try again" });
+  }
+});
+
 authRouter.get("/me", requireAuth(), async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
   if (!user) return res.status(401).json({ error: "User not found" });
-  res.json({
-    id: user.id,
-    phone: user.phone,
-    role: user.role,
-    name: user.name,
-    coachId: user.coachId,
-    parentPhone: user.parentPhone,
-  });
+  res.json(toAuthUser(user));
 });

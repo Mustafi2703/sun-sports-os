@@ -38,9 +38,16 @@ export function activeSmsProvider(): "msg91" | "twilio" | "none" {
   return "none";
 }
 
-export async function sendOtpSms(phone10: string, otp: string): Promise<SmsResult> {
+export async function sendOtpSms(
+  phone10: string,
+  otp: string,
+  purpose: "login" | "reset" = "login"
+): Promise<SmsResult> {
   const provider = activeSmsProvider();
-  const message = `Sun Sports SportsOS login code: ${otp}. Valid for 5 minutes. Do not share.`;
+  const message =
+    purpose === "reset"
+      ? `Sun Sports PIN reset code: ${otp}. Valid for 5 minutes. Do not share.`
+      : `Sun Sports SportsOS login code: ${otp}. Valid for 5 minutes. Do not share.`;
 
   if (provider === "msg91") {
     return sendMsg91(phone10, otp, message);
@@ -146,6 +153,16 @@ async function sendTwilio(phone10: string, message: string): Promise<SmsResult> 
     console.error("[sms] Twilio failed:", msg);
     return { delivered: false, provider: "twilio", error: msg };
   }
+}
+
+/** Text the temporary PIN after a successful OTP recovery. */
+export async function sendPinSms(phone10: string, pin: string): Promise<SmsResult> {
+  const provider = activeSmsProvider();
+  const message = `Sun Sports: your new PIN is ${pin}. Sign in and change it. Do not share this PIN.`;
+  if (provider === "msg91") return sendMsg91(phone10, pin, message);
+  if (provider === "twilio") return sendTwilio(phone10, message);
+  console.warn(`[sms] No SMS provider configured — new PIN for ${phone10} not delivered`);
+  return { delivered: false, provider: "none", error: "SMS provider not configured" };
 }
 
 export function shouldEchoOtp(): boolean {

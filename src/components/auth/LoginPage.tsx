@@ -61,7 +61,7 @@ const THEMES: Record<Portal, PortalTheme> = {
   coach: {
     title: "Coach Portal",
     eyebrow: "For coaches",
-    subtitle: "Run your batches — mark attendance, score players, and leave notes.",
+    subtitle: "Mark attendance, score players, and leave notes for every academy player.",
     home: "/coach",
     hint: "Sign in with the mobile number registered for your coach profile.",
     cta: "Enter coach portal",
@@ -69,7 +69,7 @@ const THEMES: Record<Portal, PortalTheme> = {
     accentSoft: "bg-primary/15 text-primary border-primary/25",
     modules: [
       { icon: Home, title: "Dashboard", desc: "Today’s batch overview at a glance" },
-      { icon: Users, title: "Players", desc: "Students assigned to your batches" },
+      { icon: Users, title: "Players", desc: "Every player in the academy" },
       { icon: CalendarCheck, title: "Attendance", desc: "Mark and edit session logs" },
       { icon: Award, title: "Assessments", desc: "Scores and performance notes" },
     ],
@@ -110,42 +110,32 @@ function normalizePhoneInput(raw: string): string {
 }
 
 export function LoginPage({ portal }: { portal: Portal }) {
-  const { login, loginWithOtp, user, loading } = useAuth();
+  const { login, user, loading } = useAuth();
   const navigate = useNavigate();
   const theme = THEMES[portal];
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
   const [pin, setPin] = useState("");
-  /** PIN (mobile + password) is primary; OTP ready when SMS is connected */
-  const [mode, setMode] = useState<"otp" | "pin">("pin");
-  const [otpSent, setOtpSent] = useState(false);
-  const [devOtp, setDevOtp] = useState<string | null>(null);
-  const [smsConfigured, setSmsConfigured] = useState(false);
-  const [pinAllowed, setPinAllowed] = useState(true);
-  const [otpAllowed, setOtpAllowed] = useState(true);
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [forgot, setForgot] = useState<"off" | "otp" | "done">("off");
+  const [resetCode, setResetCode] = useState("");
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [devPin, setDevPin] = useState<string | null>(null);
+  const [info, setInfo] = useState("");
 
   useEffect(() => {
-    void api
-      .authMethods()
-      .then((m) => {
-        setSmsConfigured(m.smsConfigured);
-        setPinAllowed(m.pin);
-        setOtpAllowed(m.otp);
-        // Prefer PIN until live SMS is connected
-        if (m.pin) setMode("pin");
-        else if (m.otp) setMode("otp");
-      })
-      .catch(() => undefined);
+    setForgot("off");
+    setError("");
+    setInfo("");
+    setDevOtp(null);
+    setDevPin(null);
   }, [portal]);
 
   if (!loading && user?.role === portal) {
     return <Navigate to={theme.home} replace />;
   }
 
-  const sendOtp = async () => {
+  const sendResetCode = async () => {
     setError("");
     setInfo("");
     setDevOtp(null);
@@ -156,15 +146,36 @@ export function LoginPage({ portal }: { portal: Portal }) {
     }
     setSubmitting(true);
     try {
-      const res = await api.requestOtp({ phone: normalized, portal });
-      setOtpSent(true);
-      setInfo(res.message || "OTP sent");
+      const res = await api.forgotPinRequest({ phone: normalized, portal });
+      setForgot("otp");
+      setInfo(res.message || "Reset code sent");
       if (res.devOtp) {
         setDevOtp(res.devOtp);
-        setOtp(res.devOtp);
+        setResetCode(res.devOtp);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send OTP");
+      setError(err instanceof Error ? err.message : "Could not send reset code");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmReset = async () => {
+    setError("");
+    const normalized = normalizePhoneInput(phone);
+    if (!resetCode.trim()) {
+      setError("Enter the code from SMS");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.forgotPinConfirm({ phone: normalized, portal, otp: resetCode.trim() });
+      setDevPin(res.devPin || null);
+      setInfo(res.message);
+      setForgot("done");
+      setPin(res.devPin || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset PIN");
     } finally {
       setSubmitting(false);
     }
@@ -178,27 +189,13 @@ export function LoginPage({ portal }: { portal: Portal }) {
       setError("Enter a valid 10-digit mobile number");
       return;
     }
+    if (!pin.trim()) {
+      setError("Enter your PIN");
+      return;
+    }
     setSubmitting(true);
     try {
-      if (mode === "otp") {
-        if (!otpSent) {
-          await sendOtp();
-          return;
-        }
-        if (!otp.trim()) {
-          setError("Enter the OTP from SMS");
-          setSubmitting(false);
-          return;
-        }
-        await loginWithOtp(portal, normalized, otp.trim());
-      } else {
-        if (!pin.trim()) {
-          setError("Enter your PIN");
-          setSubmitting(false);
-          return;
-        }
-        await login(portal, normalized, pin.trim());
-      }
+      await login(portal, normalized, pin.trim());
       navigate(theme.home, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -207,10 +204,8 @@ export function LoginPage({ portal }: { portal: Portal }) {
     }
   };
 
-  const showModeToggle = pinAllowed && otpAllowed;
-
   return (
-    <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
+    <div className="app-shell min-h-dvh overflow-x-hidden">
       <div className={cn("absolute inset-0 bg-gradient-to-br pointer-events-none", theme.accent)} aria-hidden />
       <div className="absolute inset-0 gradient-hero opacity-70 pointer-events-none" aria-hidden />
 
@@ -218,7 +213,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
         {/* Brand column — compact on mobile so sign-in is visible first */}
         <section className="order-2 lg:order-1 flex flex-1 flex-col justify-center px-4 py-6 sm:px-8 lg:px-12 lg:py-16">
           <Link to="/" className="mb-4 lg:mb-8 w-fit hidden lg:block">
-            <Logo />
+            <Logo variant="full" className="h-24 w-24" />
           </Link>
           <p
             className={cn(
@@ -256,7 +251,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
           </div>
         </section>
 
-        <section className="order-1 lg:order-2 flex flex-1 items-start sm:items-center justify-center px-4 pt-6 pb-4 sm:px-8 lg:px-10 lg:py-16 safe-pb">
+        <section className="order-1 lg:order-2 flex flex-1 items-start sm:items-center justify-center px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4 sm:px-8 lg:px-10 lg:py-16 safe-pb safe-px">
           <div className="w-full max-w-md surface-elevated rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-4 sm:space-y-5">
             <div className="flex items-center justify-between gap-3 lg:block">
               <Link to="/" className="lg:hidden shrink-0">
@@ -268,87 +263,37 @@ export function LoginPage({ portal }: { portal: Portal }) {
               </div>
             </div>
 
-            {showModeToggle && (
-              <div className="flex gap-1 p-1 rounded-xl bg-muted/40 border border-border/60">
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 text-xs py-2.5 rounded-lg transition-colors min-h-[44px]",
-                    mode === "pin" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
-                  )}
-                  onClick={() => {
-                    setMode("pin");
-                    setError("");
-                  }}
-                >
-                  Mobile + PIN
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 text-xs py-2.5 rounded-lg transition-colors min-h-[44px]",
-                    mode === "otp" ? "bg-primary/20 text-foreground font-medium" : "text-muted-foreground"
-                  )}
-                  onClick={() => {
-                    setMode("otp");
-                    setError("");
-                  }}
-                >
-                  Phone OTP
-                </button>
-              </div>
-            )}
-
-            <form onSubmit={(e) => void onSubmit(e)} className="space-y-3.5 sm:space-y-4">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
-                <Input
-                  className="h-12 text-base bg-background/50 border-border/80"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="10-digit mobile"
-                  value={phone}
-                  onChange={(e) => {
-                    setPhone(e.target.value);
-                    setOtpSent(false);
-                    setDevOtp(null);
-                  }}
-                  required
-                />
-              </div>
-
-              {mode === "otp" ? (
-                <>
-                  {otpSent && (
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1.5 block">OTP</label>
-                      <Input
-                        className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em] text-center"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        placeholder="6-digit code"
-                        maxLength={8}
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                        required
-                      />
-                    </div>
-                  )}
-                  {devOtp && (
-                    <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
-                      SMS not live yet — use code <span className="font-mono font-semibold">{devOtp}</span>
-                    </p>
-                  )}
-                  {info && !devOtp && <p className="text-xs text-muted-foreground">{info}</p>}
-                  {!smsConfigured && !devOtp && (
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                      OTP SMS will be connected later. Prefer <span className="text-foreground">Mobile + PIN</span> for now.
-                    </p>
-                  )}
-                </>
-              ) : (
+            {forgot === "off" ? (
+              <form onSubmit={(e) => void onSubmit(e)} className="space-y-3.5 sm:space-y-4">
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1.5 block">PIN</label>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
+                  <Input
+                    className="h-12 text-base bg-background/50 border-border/80"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="10-digit mobile"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs text-muted-foreground">PIN</label>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline min-h-[32px]"
+                      onClick={() => {
+                        setError("");
+                        setInfo("");
+                        setDevOtp(null);
+                        setForgot("otp");
+                        if (normalizePhoneInput(phone).length >= 10) void sendResetCode();
+                      }}
+                    >
+                      Forgot PIN?
+                    </button>
+                  </div>
                   <Input
                     className="h-12 text-base bg-background/50 border-border/80"
                     type="password"
@@ -361,42 +306,122 @@ export function LoginPage({ portal }: { portal: Portal }) {
                     required
                   />
                 </div>
-              )}
-
-              {error && <p className="text-sm text-destructive">{error}</p>}
-
-              <div className="flex flex-col gap-2 pt-1">
-                {mode === "otp" && !otpSent ? (
-                  <Button
-                    type="button"
-                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
-                    disabled={submitting}
-                    onClick={() => void sendOtp()}
-                  >
-                    {submitting ? "Sending…" : "Send OTP"}
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
-                    disabled={submitting}
-                  >
-                    {submitting ? "Signing in…" : theme.cta}
-                  </Button>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button
+                  type="submit"
+                  className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
+                  disabled={submitting}
+                >
+                  {submitting ? "Signing in…" : theme.cta}
+                </Button>
+              </form>
+            ) : (
+              <div className="space-y-3.5">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
+                  <Input
+                    className="h-12 text-base bg-background/50 border-border/80"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="10-digit mobile"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      setForgot("otp");
+                      setDevOtp(null);
+                      setDevPin(null);
+                    }}
+                    disabled={forgot === "done"}
+                  />
+                </div>
+                {forgot === "otp" && (
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1.5 block">Reset code</label>
+                    <Input
+                      className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em] text-center"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      maxLength={8}
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </div>
                 )}
-                {mode === "otp" && otpSent && (
+                {devOtp && forgot === "otp" && (
+                  <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
+                    SMS not live yet — use code <span className="font-mono font-semibold">{devOtp}</span>
+                  </p>
+                )}
+                {devPin && (
+                  <p className="text-xs rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
+                    Temporary PIN <span className="font-mono font-semibold">{devPin}</span>. Sign in, then choose your own.
+                  </p>
+                )}
+                {info && <p className="text-xs text-muted-foreground leading-relaxed">{info}</p>}
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <div className="flex flex-col gap-2">
+                  {forgot === "otp" ? (
+                    <>
+                      {!info && !devOtp ? (
+                        <Button
+                          type="button"
+                          className="w-full h-12 bg-primary text-primary-foreground"
+                          disabled={submitting}
+                          onClick={() => void sendResetCode()}
+                        >
+                          {submitting ? "Sending…" : "Send reset code"}
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            className="w-full h-12 bg-primary text-primary-foreground"
+                            disabled={submitting}
+                            onClick={() => void confirmReset()}
+                          >
+                            {submitting ? "Checking…" : "Send me a new PIN"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="w-full h-10 text-xs"
+                            disabled={submitting}
+                            onClick={() => void sendResetCode()}
+                          >
+                            Resend code
+                          </Button>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      className="w-full h-12 bg-primary text-primary-foreground"
+                      onClick={() => {
+                        setForgot("off");
+                        setError("");
+                      }}
+                    >
+                      Sign in with the new PIN
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"
                     className="w-full h-10 text-xs"
-                    disabled={submitting}
-                    onClick={() => void sendOtp()}
+                    onClick={() => {
+                      setForgot("off");
+                      setError("");
+                      setInfo("");
+                      setDevPin(null);
+                    }}
                   >
-                    Resend OTP
+                    Back to PIN login
                   </Button>
-                )}
+                </div>
               </div>
-            </form>
+            )}
 
             <div className="pt-1 border-t border-border/60">
               <p className="text-[11px] text-muted-foreground text-center mb-2">Other portals</p>

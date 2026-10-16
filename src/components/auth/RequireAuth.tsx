@@ -1,4 +1,5 @@
 import { Navigate } from "react-router-dom";
+import { ForceChangePin } from "@/components/auth/ChangePinForm";
 import { useAuth } from "@/context/AuthContext";
 import type { UserRole } from "@/lib/api";
 
@@ -17,7 +18,7 @@ export function RequireAuth({
   // a matching user (fresh login), let them through immediately.
   if (loading && !(user?.role === role && token)) {
     return (
-      <div className="app-shell min-h-screen flex items-center justify-center text-muted-foreground text-sm">
+      <div className="app-shell min-h-dvh flex items-center justify-center text-muted-foreground text-sm safe-pt safe-pb">
         Checking session…
       </div>
     );
@@ -25,6 +26,10 @@ export function RequireAuth({
 
   if (!user || user.role !== role || !token) {
     return <Navigate to={loginPath} replace />;
+  }
+
+  if (user.mustChangePin) {
+    return <ForceChangePin />;
   }
 
   return <>{children}</>;

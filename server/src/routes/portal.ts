@@ -124,8 +124,8 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
 });
 
 /**
- * Coach: only assigned batches + those students (per requirements).
- * Also returns coaching team list and tournaments involving their players.
+ * Every coach sees the full academy roster and can mark attendance and scores.
+ * Fee amounts and fee tools stay with the head coach.
  */
 portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -153,15 +153,12 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
 
   const isHead = Boolean((coach as { isHeadCoach?: boolean }).isHeadCoach);
 
-  // Head coach sees all batches; others only assigned batches
   const batches = await prisma.batch.findMany({
-    where: isHead ? undefined : { coachId: coach.id },
     include: { _count: { select: { students: true } }, coach: true },
     orderBy: { name: "asc" },
   });
   const batchIds = batches.map((b) => b.id);
   const students = await prisma.student.findMany({
-    where: { batchId: { in: batchIds } },
     orderBy: { name: "asc" },
   });
   const studentIds = new Set(students.map((s) => s.id));
@@ -189,7 +186,7 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
   const notes = await prisma.coachNote.findMany({
     where: { studentId: { in: [...studentIds] } },
     orderBy: { createdAt: "desc" },
-    take: 50,
+    take: 200,
   });
 
   // Strip fee amounts/status from non-head coaches
@@ -201,6 +198,7 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
         feeStatus: "paid" as const,
         feeAmount: 0,
         daysOverdue: 0,
+        feeRates: undefined,
       };
     }
     return m;
@@ -213,7 +211,11 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
     isHeadCoach: isHead,
     canViewFees: isHead,
     canManageStudents: isHead,
-    batches: batches.map(mapBatch),
+    batches: batches.map((b) => {
+      const mapped = mapBatch(b);
+      if (isHead) return mapped;
+      return { ...mapped, monthlyFee: 0 };
+    }),
     students: mappedStudents,
     coaches: coaches.map(mapCoach),
     attendanceByBatch: attendanceByBatch.filter((r) => batchIds.includes(r.batchId)),
@@ -248,31 +250,23 @@ async function resolveCoach(req: { user?: { coachId?: string | null; phone: stri
   return coach;
 }
 
-function coachBatchFilter(coach: { id: string; isHeadCoach?: boolean }) {
-  return Boolean(coach.isHeadCoach) ? {} : { coachId: coach.id };
-}
-
-/** Coach loads attendance marks for a date (so logged marks can be edited) */
+/** Any coach can load attendance marks for any batch */
 portalRouter.get("/coach/attendance", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);
   if (!coach) return res.status(404).json({ error: "Coach profile not linked" });
 
-  const myBatches = await prisma.batch.findMany({
-    where: coachBatchFilter(coach),
-    select: { id: true },
-  });
-  const myBatchIds = new Set(myBatches.map((b) => b.id));
   const date = new Date(String(req.query.date || new Date().toISOString().slice(0, 10)));
   date.setHours(0, 0, 0, 0);
   const batchId = req.query.batchId ? String(req.query.batchId) : undefined;
-  if (batchId && !myBatchIds.has(batchId)) {
-    return res.status(403).json({ error: "Not your batch" });
+  if (batchId) {
+    const batch = await prisma.batch.findUnique({ where: { id: batchId }, select: { id: true } });
+    if (!batch) return res.status(404).json({ error: "Batch not found" });
   }
 
   const rows = await prisma.attendanceRecord.findMany({
     where: {
       date,
-      ...(batchId ? { batchId } : { batchId: { in: [...myBatchIds] } }),
+      ...(batchId ? { batchId } : {}),
     },
     orderBy: { studentId: "asc" },
   });
@@ -299,35 +293,31 @@ portalRouter.get("/coach/attendance", requireAuth("coach"), async (req, res) => 
   });
 });
 
-/** Coach marks attendance for their batches only */
+/** Any coach can mark attendance for any academy player */
 portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);
   if (!coach) return res.status(400).json({ error: "Coach profile not linked" });
 
-  const myBatches = await prisma.batch.findMany({
-    where: coachBatchFilter(coach),
-    select: { id: true },
-  });
-  const myBatchIds = new Set(myBatches.map((b) => b.id));
   const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
   date.setHours(0, 0, 0, 0);
   const batchId = req.body.batchId || null;
-  if (batchId && !myBatchIds.has(batchId)) {
-    return res.status(403).json({ error: "Not your batch" });
+  if (batchId) {
+    const batch = await prisma.batch.findUnique({ where: { id: batchId }, select: { id: true } });
+    if (!batch) return res.status(404).json({ error: "Batch not found" });
   }
 
   const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
   if (!marks.length) return res.status(400).json({ error: "marks required" });
   const allowed = new Set(["present", "absent", "late", "leave", "no_session"]);
 
-  const myStudents = await prisma.student.findMany({
-    where: { batchId: { in: [...myBatchIds] } },
+  const found = await prisma.student.findMany({
+    where: { id: { in: marks.map((m) => m.studentId) } },
     select: { id: true },
   });
-  const allowedStudents = new Set(myStudents.map((s) => s.id));
+  const allowedStudents = new Set(found.map((s) => s.id));
   for (const m of marks) {
     if (!allowedStudents.has(m.studentId)) {
-      return res.status(403).json({ error: "Student not in your batches" });
+      return res.status(404).json({ error: "Student not found" });
     }
   }
 
@@ -742,19 +732,14 @@ portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, re
   }
 });
 
-/** Coach updates performance scores for own students */
+/** Any coach can update performance scores for any player */
 portalRouter.put("/coach/students/:id/scores", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);
   if (!coach) return res.status(400).json({ error: "Coach profile not linked" });
 
-  const myBatchIds = (
-    await prisma.batch.findMany({ where: coachBatchFilter(coach), select: { id: true } })
-  ).map((b) => b.id);
   const studentId = String(req.params.id);
   const student = await prisma.student.findUnique({ where: { id: studentId } });
-  if (!student || !student.batchId || !myBatchIds.includes(student.batchId)) {
-    return res.status(403).json({ error: "Student not in your batches" });
-  }
+  if (!student) return res.status(404).json({ error: "Student not found" });
 
   const scores = req.body.scores || req.body;
   const clamp = (v: unknown, fallback: number) => {
@@ -776,7 +761,7 @@ portalRouter.put("/coach/students/:id/scores", requireAuth("coach"), async (req,
   res.json(mapStudent(row));
 });
 
-/** Coach note on own student */
+/** Any coach can leave a note on any player */
 portalRouter.post("/coach/notes", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);
   if (!coach) return res.status(400).json({ error: "Coach profile not linked" });
@@ -785,13 +770,8 @@ portalRouter.post("/coach/notes", requireAuth("coach"), async (req, res) => {
   const note = String(req.body.note || "").trim();
   if (!studentId || !note) return res.status(400).json({ error: "studentId and note required" });
 
-  const myBatchIds = (
-    await prisma.batch.findMany({ where: coachBatchFilter(coach), select: { id: true } })
-  ).map((b) => b.id);
   const student = await prisma.student.findUnique({ where: { id: studentId } });
-  if (!student || !student.batchId || !myBatchIds.includes(student.batchId)) {
-    return res.status(403).json({ error: "Student not in your batches" });
-  }
+  if (!student) return res.status(404).json({ error: "Student not found" });
 
   const row = await prisma.coachNote.create({
     data: { studentId, note, author: req.user!.name },

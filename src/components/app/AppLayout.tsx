@@ -5,6 +5,7 @@ import {
   MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut, ClipboardList,
   AlertTriangle,
 } from "lucide-react";
+import { ChangePinButton } from "@/components/auth/ChangePinForm";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +129,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <div className="app-shell min-h-screen min-h-[100dvh] overflow-x-hidden">
+    <div className="app-shell min-h-dvh overflow-x-hidden">
       <div className="flex">
         {/* Sidebar (desktop) */}
         <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
@@ -148,6 +149,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
                 <p className="text-xs text-muted-foreground">Internal team</p>
               </div>
             </div>
+            <ChangePinButton className="w-full justify-start" />
             <Button variant="outline" size="sm" className="w-full justify-start" onClick={signOut}>
               <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
             </Button>
@@ -175,9 +177,12 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
               <nav className="space-y-1 flex-1 overflow-y-auto overscroll-contain">
                 {NAV.map(item => <NavItem key={item.to} {...item} onClick={() => setMobileOpen(false)} />)}
               </nav>
-              <Button variant="outline" className="w-full mt-4 min-h-[44px]" onClick={() => { setMobileOpen(false); signOut(); }}>
-                <LogOut className="h-4 w-4 mr-2" /> Sign out
-              </Button>
+              <div className="mt-4 space-y-2">
+                <ChangePinButton className="w-full justify-start min-h-[44px]" />
+                <Button variant="outline" className="w-full min-h-[44px]" onClick={() => { setMobileOpen(false); signOut(); }}>
+                  <LogOut className="h-4 w-4 mr-2" /> Sign out
+                </Button>
+              </div>
             </aside>
           </div>
         )}
@@ -273,7 +278,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
             </div>
           </div>
 
-          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-[100vw] overflow-x-hidden pb-24 lg:pb-8">
+          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-full min-w-0 overflow-x-hidden lg:pb-8">
             {children}
           </div>
         </main>

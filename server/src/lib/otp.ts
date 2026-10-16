@@ -11,8 +11,10 @@ export function pinAuthAllowed(): boolean {
 
 export function authMethods() {
   return {
-    otp: true,
+    /** Login is PIN-only. OTP is used for forgotten-PIN recovery. */
+    otp: false,
     pin: pinAuthAllowed(),
+    pinRecovery: true,
     smsConfigured: smsConfigured(),
     smsProvider: activeSmsProvider(),
   };
@@ -22,7 +24,11 @@ function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export async function createAndSendOtp(phone: string, portal: string) {
+export async function createAndSendOtp(
+  phone: string,
+  portal: string,
+  purpose: "login" | "reset" = "login"
+) {
   const code = generateOtp();
   const codeHash = await hashPin(code);
   const expiresAt = new Date(Date.now() + OTP_TTL_MS());
@@ -33,7 +39,7 @@ export async function createAndSendOtp(phone: string, portal: string) {
     data: { phone, portal, codeHash, expiresAt },
   });
 
-  const sms = await sendOtpSms(phone, code);
+  const sms = await sendOtpSms(phone, code, purpose);
   const echo = shouldEchoOtp();
   if (echo) {
     console.log(`[otp] ${portal} ${phone} → ${code} (echo=${echo}, sms=${sms.delivered})`);

@@ -80,18 +80,29 @@ export async function bootstrapPortalUsers() {
   }
 
   for (const [phone, name] of byPhone) {
-    await prisma.user.upsert({
+    const existing = await prisma.user.findUnique({
       where: { phone_role: { phone, role: "parent" } },
-      create: {
-        phone,
-        pinHash,
-        role: "parent",
+    });
+    if (!existing) {
+      await prisma.user.create({
+        data: {
+          phone,
+          pinHash,
+          role: "parent",
+          name,
+          parentPhone: phone,
+          mustChangePin: true,
+        },
+      });
+      continue;
+    }
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
         name,
         parentPhone: phone,
-      },
-      update: {
-        name,
-        parentPhone: phone,
+        // Keep the shared PIN. Ask for a personal PIN until they set one.
+        ...(existing.pinChangedAt ? {} : { mustChangePin: true }),
       },
     });
   }
@@ -100,6 +111,6 @@ export async function bootstrapPortalUsers() {
   console.log(
     "Portal users ready:",
     counts.map((c) => `${c.role}=${c._count}`).join(", "),
-    `(default PIN ${pin} for new accounts only)`
+    `(shared PIN ${pin} for accounts that have not chosen their own; parents change it on first login)`
   );
 }

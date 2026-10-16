@@ -3,21 +3,30 @@ import { cn } from "@/lib/utils";
 interface LogoProps {
   className?: string;
   showText?: boolean;
+  /** mark = icon crop + wordmark. full = the academy logo artwork. */
+  variant?: "mark" | "full";
 }
 
-export const Logo = ({ className, showText = true }: LogoProps) => {
+export const Logo = ({ className, showText = true, variant = "mark" }: LogoProps) => {
+  if (variant === "full") {
+    return (
+      <img
+        src="/logo.jpg"
+        alt="Sun Sports High-Performance Cricket Academy"
+        className={cn("h-28 w-28 rounded-2xl object-cover bg-black shadow-glow", className)}
+      />
+    );
+  }
+
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <div className="relative h-8 w-8 rounded-lg gradient-primary flex items-center justify-center shadow-glow">
-        <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary-foreground" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-          {/* Cricket bat */}
-          <path d="M14.5 3.5l6 6-9 9-3-3 9-9z" />
-          <path d="M8.5 12.5l-4 4a2 2 0 102.83 2.83l4-4" />
-          <circle cx="5" cy="19" r="0.5" />
-        </svg>
-      </div>
+    <div className={cn("flex items-center gap-2 min-w-0", className)}>
+      <img
+        src="/logo.jpg"
+        alt=""
+        className="h-9 w-9 shrink-0 rounded-lg object-cover object-top bg-black"
+      />
       {showText && (
-        <span className="font-display text-lg font-bold tracking-tight text-foreground">
+        <span className="font-display text-lg font-bold tracking-tight text-foreground truncate">
           Sun<span className="text-primary">Sports</span>
           <span className="ml-1.5 text-xs font-semibold text-muted-foreground tracking-wide">OS</span>
         </span>

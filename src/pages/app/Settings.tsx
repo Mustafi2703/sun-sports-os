@@ -156,7 +156,7 @@ const Settings = () => {
 
         <Card title="Portal access">
           <p className="text-sm text-muted-foreground mb-3">
-            Parents, coaches, and team each sign in with phone OTP (PIN backup available).
+            Parents, coaches, and team sign in with mobile number and PIN. Forgotten PINs are recovered by SMS.
           </p>
           <ul className="text-sm space-y-2">
             <li>
@@ -174,8 +174,8 @@ const Settings = () => {
           </ul>
           {authInfo && (
             <p className="text-xs text-muted-foreground mt-3">
-              SMS: {authInfo.smsConfigured ? `live via ${authInfo.smsProvider}` : "not configured (OTP shown on login for testing)"}
-              {authInfo.pin ? " · PIN backup on" : " · PIN off"}
+              Sign-in: PIN
+              {authInfo.smsConfigured ? ` · PIN recovery SMS via ${authInfo.smsProvider}` : " · PIN recovery SMS not configured yet"}
             </p>
           )}
         </Card>

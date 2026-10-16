@@ -26,12 +26,12 @@ const PORTALS = [
 /** Minimal chooser — no marketing landing. */
 const PortalGate = () => {
   return (
-    <div className="app-shell min-h-screen min-h-[100dvh] flex items-center justify-center p-5 sm:p-8">
+    <div className="app-shell min-h-dvh flex items-center justify-center p-5 sm:p-8 safe-pt safe-pb safe-px">
       <div className="absolute inset-0 gradient-hero opacity-80 pointer-events-none" aria-hidden />
       <div className="relative w-full max-w-lg space-y-8">
         <div className="text-center space-y-3">
           <div className="flex justify-center">
-            <Logo />
+            <Logo variant="full" className="mx-auto h-36 w-36 sm:h-44 sm:w-44" />
           </div>
           <p className="text-sm text-muted-foreground">Choose your portal to sign in</p>
         </div>

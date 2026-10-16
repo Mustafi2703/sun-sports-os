@@ -34,6 +34,7 @@ interface AuthContextValue {
   activeRole: UserRole | null;
   login: (portal: Portal, phone: string, pin: string) => Promise<void>;
   loginWithOtp: (portal: Portal, phone: string, otp: string) => Promise<void>;
+  markPinChanged: (user: AuthUser) => void;
   logout: () => void;
   loginPath: (role?: UserRole) => string;
   isRole: (role: UserRole) => boolean;
@@ -161,6 +162,16 @@ function AuthSession({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
+  const markPinChanged = useCallback(
+    (nextUser: AuthUser) => {
+      if (!activeRole || !token) return;
+      const next = { ...nextUser, mustChangePin: false };
+      writeStored(activeRole, token, next);
+      setAuth({ token, user: next });
+    },
+    [activeRole, token]
+  );
+
   const logout = useCallback(() => {
     genRef.current += 1;
     if (activeRole) clearStored(activeRole);
@@ -177,11 +188,12 @@ function AuthSession({ children }: { children: ReactNode }) {
       activeRole,
       login,
       loginWithOtp,
+      markPinChanged,
       logout,
       loginPath: (role) => LOGIN_PATH[role ?? activeRole ?? "admin"],
       isRole: (role) => user?.role === role,
     }),
-    [token, user, loading, activeRole, login, loginWithOtp, logout]
+    [token, user, loading, activeRole, login, loginWithOtp, markPinChanged, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

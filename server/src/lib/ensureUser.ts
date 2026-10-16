@@ -1,23 +1,32 @@
 import { prisma } from "./prisma.js";
 import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
 
-/** Create/update a single parent portal user for a phone (PIN set only on create) */
+/** Create/update a single parent portal user for a phone (PIN set only on create). */
 export async function ensureParentUser(parentPhone: string | null | undefined, parentName?: string | null) {
   const phone = normalizePhone(parentPhone);
   if (!phone || phone.length < 10) return null;
-  const pinHash = await hashPin(getDefaultPin());
-  return prisma.user.upsert({
+  const existing = await prisma.user.findUnique({
     where: { phone_role: { phone, role: "parent" } },
-    create: {
-      phone,
-      pinHash,
-      role: "parent",
-      name: parentName || "Parent",
+  });
+  if (!existing) {
+    return prisma.user.create({
+      data: {
+        phone,
+        pinHash: await hashPin(getDefaultPin()),
+        role: "parent",
+        name: parentName || "Parent",
+        parentPhone: phone,
+        mustChangePin: true,
+      },
+    });
+  }
+  return prisma.user.update({
+    where: { id: existing.id },
+    data: {
+      name: parentName || existing.name || "Parent",
       parentPhone: phone,
-    },
-    update: {
-      name: parentName || "Parent",
-      parentPhone: phone,
+      // Shared rollout PIN stays until they choose their own.
+      ...(existing.pinChangedAt ? {} : { mustChangePin: true }),
     },
   });
 }

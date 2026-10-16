@@ -10,6 +10,7 @@ export interface AuthUser {
   name: string;
   coachId?: string | null;
   parentPhone?: string | null;
+  mustChangePin?: boolean;
 }
 
 export interface Coach {
@@ -222,7 +223,24 @@ export const api = {
       body: JSON.stringify(body),
     }),
   authMethods: () =>
-    request<{ otp: boolean; pin: boolean; smsConfigured: boolean; smsProvider: string }>("/api/auth/methods"),
+    request<{ otp: boolean; pin: boolean; pinRecovery?: boolean; smsConfigured: boolean; smsProvider: string }>(
+      "/api/auth/methods"
+    ),
+  forgotPinRequest: (body: { phone: string; portal: Portal }) =>
+    request<{ ok: boolean; message: string; smsDelivered: boolean; devOtp?: string }>("/api/auth/forgot-pin/request", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  forgotPinConfirm: (body: { phone: string; portal: Portal; otp: string }) =>
+    request<{ ok: boolean; message: string; pinSent: boolean; devPin?: string }>("/api/auth/forgot-pin/confirm", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  changePin: (body: { newPin: string; currentPin?: string }) =>
+    request<{ ok: boolean; user: AuthUser }>("/api/auth/change-pin", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   requestOtp: (body: { phone: string; portal: Portal }) =>
     request<{
       ok: boolean;
