@@ -163,14 +163,14 @@ const Attendance = () => {
             {loadingMarks ? <span className="text-xs text-muted-foreground font-normal ml-2">Loading saved marks…</span> : null}
           </h3>
         </div>
-        <div className="divide-y divide-border max-h-[480px] overflow-y-auto scrollbar-thin">
+        <div className="divide-y divide-border md:max-h-[480px] md:overflow-y-auto scrollbar-thin">
           {batchStudents.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">No students in this batch.</p>
           ) : (
             batchStudents.map((s) => {
               const m = marks[s.id];
               return (
-                <div key={s.id} className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3">
+                <div key={s.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 sm:px-4 py-3">
                   <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                     <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0", initialsColor(s.name))}>{initialsOf(s.name)}</div>
                     <div className="min-w-0">
@@ -180,7 +180,7 @@ const Attendance = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <MarkBtn active={m === "present"} tone="success" onClick={() => set(s.id, "present")}><Check className="h-4 w-4" /></MarkBtn>
                     <MarkBtn active={m === "late"} tone="warning" onClick={() => set(s.id, "late")}><Clock className="h-4 w-4" /></MarkBtn>
                     <MarkBtn active={m === "absent"} tone="danger" onClick={() => set(s.id, "absent")}><X className="h-4 w-4" /></MarkBtn>

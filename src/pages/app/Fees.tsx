@@ -184,7 +184,7 @@ const Fees = () => {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="grid w-full grid-cols-2 h-auto">
           <TabsTrigger value="dues">Monthly dues</TabsTrigger>
           <TabsTrigger value="packages">Fee packages</TabsTrigger>
         </TabsList>
@@ -214,7 +214,46 @@ const Fees = () => {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          <div className="md:hidden space-y-2">
+            {filtered.length === 0 && (
+              <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                No dues for this month.
+              </p>
+            )}
+            {filtered.map((row) => (
+              <div key={row.id} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{row.studentName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{row.packageName} · {row.monthLabel}</p>
+                  </div>
+                  <p className="font-semibold shrink-0">{inr(row.amount)}</p>
+                </div>
+                <Badge variant="outline" className={cn("capitalize", STATUS_BADGE[row.status] || "")}>
+                  {row.status}
+                  {row.status === "overdue" && row.daysOverdue > 0 ? ` · ${row.daysOverdue}d` : ""}
+                </Badge>
+                {row.status !== "paid" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground" onClick={() => void markPaid(row)}>
+                      Mark paid
+                    </Button>
+                    {row.status !== "overdue" ? (
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => void markOverdue(row)}>
+                        Mark overdue
+                      </Button>
+                    ) : <span />}
+                  </div>
+                ) : (
+                  <p className="text-xs text-primary inline-flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Paid
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden md:block rounded-2xl border border-border bg-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[900px]">
                 <thead className="bg-muted/30 text-xs text-muted-foreground">

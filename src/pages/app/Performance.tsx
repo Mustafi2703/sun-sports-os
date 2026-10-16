@@ -96,7 +96,36 @@ const Performance = () => {
         </Select>
       </div>
 
-      <div className="rounded-2xl border border-border bg-card overflow-hidden overflow-x-auto">
+      <div className="md:hidden space-y-2">
+        {list.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">No students in this batch.</p>
+        ) : (
+          list.map((s) => {
+            const overall = ((s.scores.batting + s.scores.bowling + s.scores.fielding + s.scores.fitness + s.scores.temperament) / 5).toFixed(1);
+            return (
+              <div key={s.id} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium truncate">{s.name}</p>
+                  <p className="text-sm font-semibold text-primary shrink-0">{overall}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>Batting {s.scores.batting}</span>
+                  <span>Bowling {s.scores.bowling}</span>
+                  <span>Fielding {s.scores.fielding}</span>
+                  <span>Fitness {s.scores.fitness}</span>
+                  <span>Temperament {s.scores.temperament}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => openEdit(s)}>Edit scores</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPreviewId(s.id)}>View card</Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block rounded-2xl border border-border bg-card overflow-hidden overflow-x-auto">
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-muted/30 text-xs text-muted-foreground">
             <tr>

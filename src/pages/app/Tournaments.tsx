@@ -445,7 +445,33 @@ const TournamentDetailsDialog = ({ tournament, onOpenChange, onLogStats, onShare
           {/* Match schedule */}
           <section>
             <h3 className="text-sm font-semibold mb-3">Match Schedule</h3>
-            <div className="rounded-lg border border-border overflow-x-auto">
+            <div className="md:hidden space-y-2">
+              {tournament.matches.map((m) => (
+                <div key={m.id} className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium">#{m.number} vs {m.opponent}</p>
+                      <p className="text-xs text-muted-foreground">{fmtDate(m.date)} · {m.time}</p>
+                      <p className="text-xs text-muted-foreground truncate">{m.venue}</p>
+                    </div>
+                    {m.completed ? (
+                      <Badge variant="outline" className={cn(
+                        "shrink-0",
+                        m.result === "won" ? "bg-primary/15 text-primary border-primary/30" :
+                        m.result === "lost" ? "bg-destructive/15 text-destructive border-destructive/30" :
+                        "bg-muted text-muted-foreground"
+                      )}>
+                        {m.result === "won" ? "Won" : m.result === "lost" ? "Lost" : "Tied"}
+                      </Badge>
+                    ) : <Badge variant="outline" className="shrink-0">Upcoming</Badge>}
+                  </div>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => onLogStats(m.id)}>
+                    {m.completed ? "Edit Stats" : "Log Match Stats"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block rounded-lg border border-border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -604,7 +630,31 @@ const LogStatsDialog = ({ tournament, match, onClose, onSave }: {
 
           <div>
             <h4 className="text-sm font-semibold mb-2">Player Stats</h4>
-            <div className="rounded-lg border border-border overflow-x-auto">
+            <div className="md:hidden space-y-3">
+              {stats.map((st, i) => {
+                const s = students.find((x) => x.id === st.studentId);
+                return (
+                  <div key={st.studentId} className="rounded-lg border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium truncate">{s?.name}</p>
+                      <label className="flex items-center gap-2 text-xs shrink-0">
+                        PoTM
+                        <Checkbox checked={st.potm} onCheckedChange={(c) => updateStat(i, { potm: !!c })} />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div><Label className="text-[11px]">Runs</Label><Input className="h-8" type="number" value={st.runs} onChange={(e) => updateStat(i, { runs: +e.target.value })} /></div>
+                      <div><Label className="text-[11px]">Balls</Label><Input className="h-8" type="number" value={st.ballsFaced} onChange={(e) => updateStat(i, { ballsFaced: +e.target.value })} /></div>
+                      <div><Label className="text-[11px]">Wkts</Label><Input className="h-8" type="number" value={st.wickets} onChange={(e) => updateStat(i, { wickets: +e.target.value })} /></div>
+                      <div><Label className="text-[11px]">Overs</Label><Input className="h-8" type="number" value={st.oversBowled} onChange={(e) => updateStat(i, { oversBowled: +e.target.value })} /></div>
+                      <div><Label className="text-[11px]">Ct</Label><Input className="h-8" type="number" value={st.catches} onChange={(e) => updateStat(i, { catches: +e.target.value })} /></div>
+                      <div><Label className="text-[11px]">RO</Label><Input className="h-8" type="number" value={st.runOuts} onChange={(e) => updateStat(i, { runOuts: +e.target.value })} /></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block rounded-lg border border-border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

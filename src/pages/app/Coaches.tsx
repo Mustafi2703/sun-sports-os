@@ -127,7 +127,30 @@ const CoachesPage = () => {
         <div className="p-4 border-b border-border">
           <Input placeholder="Search coaches" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
         </div>
-        <div className="overflow-x-auto">
+        <div className="md:hidden divide-y divide-border">
+          {filtered.map((c) => {
+            const myBatches = batches.filter((b) => b.coachId === c.id);
+            const batchIds = new Set(myBatches.map((b) => b.id));
+            const playerCount = students.filter((s) => batchIds.has(s.batchId)).length;
+            return (
+              <div key={c.id} className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{c.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{c.specialty || "Coach"} · {c.phone}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{myBatches.length} batches · {playerCount} players · {inr(c.salaryMonthly || 0)}/mo</p>
+                  </div>
+                  <Badge variant="outline" className="capitalize shrink-0">{c.status || "active"}</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button size="sm" variant="outline" onClick={() => open(c)}>Edit</Button>
+                  <Button size="sm" variant="outline" className="text-destructive" onClick={() => void remove(c)}>Delete</Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm min-w-[880px]">
             <thead className="bg-muted/30 text-xs text-muted-foreground">
               <tr>

@@ -214,8 +214,9 @@ const Students = () => {
           <p className="font-display font-semibold">No students match your filters</p>
           <Button className="mt-4" variant="outline" onClick={() => setEditing(null)}>Add student</Button>
         </div>
-      ) : view === "grid" ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      ) : (
+        <>
+        <div className={cn("grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3", view === "list" && "md:hidden")}>
           {filtered.map((s) => {
             const b = getBatch(s.batchId);
             const c = b ? getCoach(b.coachId) : undefined;
@@ -249,8 +250,8 @@ const Students = () => {
             );
           })}
         </div>
-      ) : (
-        <div className="rounded-2xl border border-border bg-card overflow-hidden overflow-x-auto">
+        {view === "list" && (
+        <div className="hidden md:block rounded-2xl border border-border bg-card overflow-hidden overflow-x-auto">
           <table className="w-full text-sm min-w-[700px]">
             <thead className="bg-muted/30 text-xs text-muted-foreground">
               <tr>
@@ -286,6 +287,8 @@ const Students = () => {
             </tbody>
           </table>
         </div>
+        )}
+      </>
       )}
 
       <StudentDetailModal
