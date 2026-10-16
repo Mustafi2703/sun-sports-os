@@ -129,7 +129,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <div className="app-shell min-h-dvh overflow-x-hidden">
+    <div className="app-shell min-h-dvh">
       <div className="flex">
         {/* Sidebar (desktop) */}
         <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
@@ -278,7 +278,7 @@ export const AppLayout = ({ children }: { children: ReactNode }) => {
             </div>
           </div>
 
-          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-full min-w-0 overflow-x-hidden lg:pb-8">
+          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-full min-w-0 lg:pb-8">
             {children}
           </div>
         </main>

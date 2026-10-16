@@ -61,7 +61,7 @@ export function PortalShell({
   const mobileTabs = tabs ?? [];
 
   return (
-    <div className="app-shell min-h-dvh overflow-x-hidden">
+    <div className="app-shell min-h-dvh">
       <div className="flex">
         {/* Sidebar (desktop) */}
         <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
@@ -200,7 +200,7 @@ export function PortalShell({
             </div>
           </div>
 
-          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-full min-w-0 overflow-x-hidden lg:pb-8">
+          <div className="p-3 sm:p-6 lg:p-8 animate-fade-in max-w-full min-w-0 lg:pb-8">
             {children}
           </div>
         </main>
@@ -209,7 +209,7 @@ export function PortalShell({
       {/* Mobile bottom nav — scrollable so all tabs stay visible */}
       {mobileTabs.length > 0 && (
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border/70 bg-card/90 backdrop-blur-md safe-pb">
-          <ul className="flex overflow-x-auto scrollbar-none snap-x snap-mandatory gap-0.5 px-1">
+          <ul className="flex overflow-x-auto overscroll-x-contain scrollbar-none gap-0.5 px-1">
             {mobileTabs.map((t) => (
               <li key={t.id} className="snap-start shrink-0 min-w-[4.25rem] max-w-[5.5rem] flex-1">
                 <button

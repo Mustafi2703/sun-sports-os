@@ -79,18 +79,21 @@ All colors MUST be HSL.
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    height: -webkit-fill-available;
     background-color: hsl(var(--background));
+    /* clip hides sideways overflow without turning the page into a nested scroller */
+    overflow-x: clip;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100%;
+    -webkit-overflow-scrolling: touch;
   }
 
-  html,
   body,
   #root {
-    overflow-x: hidden;
+    overflow: visible;
     max-width: 100%;
     min-height: 100%;
     min-height: 100dvh;
-    min-height: -webkit-fill-available;
   }
 
   body {
@@ -98,16 +101,6 @@ All colors MUST be HSL.
     font-family: 'DM Sans', system-ui, sans-serif;
     font-feature-settings: 'cv02','cv03','cv04','cv11';
     -webkit-tap-highlight-color: transparent;
-    overscroll-behavior-y: none;
-    touch-action: manipulation;
-  }
-
-  /* Installed home-screen app: keep chrome clear of the notch and home indicator */
-  @media (display-mode: standalone) {
-    body {
-      min-height: 100dvh;
-      min-height: -webkit-fill-available;
-    }
   }
 
   /* Prevent iOS zoom on focus for form fields */
@@ -135,9 +128,10 @@ All colors MUST be HSL.
   /* Shared ambient canvas — landing, login, portals, app */
   .app-shell {
     position: relative;
-    isolation: isolate;
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    overflow: visible;
+    min-height: 100dvh;
   }
   .app-shell::before {
     content: "";
