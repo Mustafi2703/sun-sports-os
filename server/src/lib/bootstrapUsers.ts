@@ -91,7 +91,6 @@ export async function bootstrapPortalUsers() {
           role: "parent",
           name,
           parentPhone: phone,
-          mustChangePin: true,
         },
       });
       continue;
@@ -101,16 +100,20 @@ export async function bootstrapPortalUsers() {
       data: {
         name,
         parentPhone: phone,
-        // Keep the shared PIN. Ask for a personal PIN until they set one.
-        ...(existing.pinChangedAt ? {} : { mustChangePin: true }),
       },
     });
   }
+
+  // PINs are already issued. Sign-in opens the portal; PIN changes happen inside it.
+  await prisma.user.updateMany({
+    where: { mustChangePin: true },
+    data: { mustChangePin: false },
+  });
 
   const counts = await prisma.user.groupBy({ by: ["role"], _count: true });
   console.log(
     "Portal users ready:",
     counts.map((c) => `${c.role}=${c._count}`).join(", "),
-    `(shared PIN ${pin} for accounts that have not chosen their own; parents change it on first login)`
+    `(shared PIN ${pin}; change PIN is inside the portal)`
   );
 }

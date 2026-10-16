@@ -422,8 +422,8 @@ export default function CoachHome() {
                 title="Welcome back"
                 description={
                   isHeadCoach
-                    ? `Here's the academy, ${data.coach.name.split(" ")[0]}.`
-                    : `All academy players, ${data.coach.name.split(" ")[0]}. Fees stay with the head coach.`
+                    ? `Academy overview and fee prices, ${data.coach.name.split(" ")[0]}.`
+                    : `All academy players, ${data.coach.name.split(" ")[0]}.`
                 }
                 actions={
                   <Button className="bg-primary text-primary-foreground" onClick={() => setTab("attendance")}>
@@ -451,6 +451,22 @@ export default function CoachHome() {
                   />
                 )}
               </div>
+
+              {isHeadCoach && feePackages.length > 0 && (
+                <div className="rounded-2xl border border-border bg-card p-5">
+                  <h3 className="font-display font-semibold">Fee prices</h3>
+                  <p className="text-xs text-muted-foreground mt-1">Visible to head coach and the team portal only.</p>
+                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {feePackages.map((p) => (
+                      <div key={p.id} className="rounded-xl border border-border px-3 py-3">
+                        <p className="text-xs text-muted-foreground">{p.name}</p>
+                        <p className="font-display font-semibold mt-1">{inr(p.monthlyAmount)}<span className="text-xs font-normal text-muted-foreground">/mo</span></p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{p.months} mo · {inr(p.totalAmount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className={cn("grid gap-4", isHeadCoach ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
                 {isHeadCoach && (

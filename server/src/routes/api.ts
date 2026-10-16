@@ -933,7 +933,6 @@ api.post("/users", async (req, res) => {
         pinHash: await hashPin(pin),
         coachId: req.body.coachId || null,
         parentPhone: role === "parent" ? phone : null,
-        mustChangePin: role === "parent",
       },
     });
     res.status(201).json({
@@ -963,8 +962,8 @@ api.put("/users/:id", async (req, res) => {
     if (req.body.name != null) data.name = String(req.body.name).trim();
     if (req.body.pin) {
       data.pinHash = await hashPin(String(req.body.pin).trim());
-      data.mustChangePin = true;
-      data.pinChangedAt = null;
+      data.mustChangePin = false;
+      data.pinChangedAt = new Date();
     }
     if (req.body.coachId !== undefined) data.coachId = req.body.coachId || null;
     if (req.body.parentPhone !== undefined) {

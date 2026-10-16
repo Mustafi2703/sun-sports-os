@@ -16,7 +16,6 @@ export async function ensureParentUser(parentPhone: string | null | undefined, p
         role: "parent",
         name: parentName || "Parent",
         parentPhone: phone,
-        mustChangePin: true,
       },
     });
   }
@@ -25,8 +24,6 @@ export async function ensureParentUser(parentPhone: string | null | undefined, p
     data: {
       name: parentName || existing.name || "Parent",
       parentPhone: phone,
-      // Shared rollout PIN stays until they choose their own.
-      ...(existing.pinChangedAt ? {} : { mustChangePin: true }),
     },
   });
 }

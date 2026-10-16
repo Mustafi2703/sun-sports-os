@@ -156,7 +156,7 @@ const Settings = () => {
 
         <Card title="Portal access">
           <p className="text-sm text-muted-foreground mb-3">
-            Parents, coaches, and team sign in with mobile number and PIN. Forgotten PINs are recovered by SMS.
+            Parents, coaches, and the team sign in with a mobile number and PIN. Change PIN is inside each portal.
           </p>
           <ul className="text-sm space-y-2">
             <li>
@@ -174,8 +174,7 @@ const Settings = () => {
           </ul>
           {authInfo && (
             <p className="text-xs text-muted-foreground mt-3">
-              Sign-in: PIN
-              {authInfo.smsConfigured ? ` · PIN recovery SMS via ${authInfo.smsProvider}` : " · PIN recovery SMS not configured yet"}
+              Sign-in: mobile number and PIN
             </p>
           )}
         </Card>

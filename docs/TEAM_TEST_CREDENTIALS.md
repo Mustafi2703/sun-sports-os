@@ -3,7 +3,7 @@
 **App (live):** https://sun-sports-os.vercel.app  
 **API (live):** https://sun-sports-api-production.up.railway.app  
 
-Use **Mobile number + PIN** on every portal. There is no OTP login. Forgot PIN texts a reset code, then a new PIN. Parents are asked to choose their own PIN on first sign-in. The shared PIN stays `1234` until they do. The rollout intro SMS is not sent from the app yet.
+Sign in with **mobile number and PIN** only. There is no SMS on the login screen. Change PIN is inside the portal. Shared PIN stays `1234`. Fee prices are on the team portal and the head coach portal only.
 
 **Default PIN for all seeded accounts:** `1234`
 
@@ -76,6 +76,6 @@ PIN for all: `1234`
 ## 5. Notes
 
 - Login no longer shows “quick fill / select user” chips — type the mobile number.
-- Sign-in is PIN only. Forgot PIN uses SMS (MSG91 / Twilio). Until SMS is live, a temporary code may show on screen outside production.
+- Sign-in is mobile number and PIN. Change PIN is inside the portal menu.
 - Fee packages: Monthly ₹15k · Quarterly ₹14k/mo · Half year ₹13k/mo · Annual ₹12k/mo.
 - Do not share this file publicly after delivery; rotate PINs if numbers are real production WhatsApp lines.
