@@ -149,7 +149,7 @@ export const StudentDetailModal = ({
                   <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border p-4">No payments recorded yet.</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {payments.slice(0, 8).map((f) => (
+                    {payments.map((f) => (
                       <div key={f.id} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
                         <span className="text-sm">{f.month || new Date(f.paidAt).toLocaleDateString("en-IN")}</span>
                         <div className="flex items-center gap-2">

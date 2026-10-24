@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  CreditCard, AlertTriangle, Calendar, Package, CheckCircle2, Clock, Search, Plus, Banknote,
+  CreditCard, AlertTriangle, Calendar, Package, Clock, Plus,
 } from "lucide-react";
+import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Student } from "@/lib/api";
+import type { FeeLedger, Student } from "@/lib/api";
 
 type FeePackage = {
   id: string;
@@ -24,18 +25,6 @@ type FeePackage = {
   monthlyAmount: number;
   totalAmount: number;
   active: boolean;
-};
-
-type InstallmentRow = {
-  id: string;
-  studentId: string;
-  studentName: string;
-  monthLabel: string;
-  amount: number;
-  status: string;
-  daysOverdue: number;
-  packageName: string;
-  parentPhone?: string;
 };
 
 type Metrics = {
@@ -50,12 +39,6 @@ type Metrics = {
   packageBookValue: number;
   totalCollected: number;
   coachSalaryBill: number;
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  paid: "bg-primary/15 text-primary border-primary/30",
-  pending: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  overdue: "bg-destructive/15 text-destructive border-destructive/30",
 };
 
 function currentMonth() {
@@ -76,94 +59,44 @@ const Fees = () => {
   const { students, api, inr, refresh } = useAcademy();
   const [tab, setTab] = useState("dues");
   const [packages, setPackages] = useState<FeePackage[]>([]);
-  const [installments, setInstallments] = useState<InstallmentRow[]>([]);
+  const [ledger, setLedger] = useState<FeeLedger | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [month, setMonth] = useState(currentMonth());
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [q, setQ] = useState("");
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [pkgOpen, setPkgOpen] = useState(false);
 
   const load = useCallback(async () => {
-    const [pkgs, inst, met] = await Promise.all([
+    const [pkgs, nextLedger, met] = await Promise.all([
       api.listFeePackages(),
-      api.listFeeInstallments({ month }),
+      api.feeLedger(),
       api.feeMetrics(),
     ]);
     setPackages(pkgs.filter((p) => p.active));
-    setInstallments(inst);
+    setLedger(nextLedger);
     setMetrics(met);
-  }, [api, month]);
+  }, [api]);
 
   useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load fees"));
   }, [load]);
 
-  const filtered = useMemo(() => {
-    return installments.filter((i) => {
-      if (statusFilter !== "all" && i.status !== statusFilter) return false;
-      if (q && !i.studentName.toLowerCase().includes(q.toLowerCase()) && !(i.parentPhone || "").includes(q)) {
-        return false;
-      }
-      return true;
-    });
-  }, [installments, statusFilter, q]);
-
-  const missingThisMonth = useMemo(() => {
-    if (statusFilter === "paid" || statusFilter === "overdue") return [];
-    const covered = new Set(installments.map((i) => i.studentId));
-    const query = q.trim().toLowerCase();
-    return students.filter((s) => {
-      if (covered.has(s.id)) return false;
-      if (query && !s.name.toLowerCase().includes(query) && !(s.parentPhone || "").includes(query)) return false;
-      return true;
-    });
-  }, [installments, students, statusFilter, q]);
-
-  const markPaid = async (row: InstallmentRow) => {
-    setBusy(true);
+  const markReceived = async (studentId: string, studentName: string, month: string) => {
+    const key = `${studentId}:${month}`;
+    setBusyKey(key);
     try {
-      await api.updateFeeInstallment(row.id, { status: "paid", method: "cash" });
-      toast.success(`${row.studentName} — ${row.monthLabel} marked paid`);
-      await load();
-      await refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const markReceived = async (student: Student) => {
-    setBusy(true);
-    try {
-      const res = await api.recordFeeReceived({ studentId: student.id, month });
+      const res = await api.recordFeeReceived({ studentId, month });
       toast.success(
         res.alreadyRecorded
-          ? `${student.name} was already recorded for ${month}`
-          : `${student.name} — ${month} marked received`
+          ? `${studentName} — ${month} was already received`
+          : `${studentName} — ${month} marked received`
       );
       await load();
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not record fee");
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const markOverdue = async (row: InstallmentRow) => {
-    setBusy(true);
-    try {
-      await api.updateFeeInstallment(row.id, { status: "overdue", daysOverdue: Math.max(1, row.daysOverdue || 1) });
-      toast.success("Marked overdue — parent portal updated");
-      await load();
-      await refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
-    } finally {
-      setBusy(false);
+      setBusyKey(null);
     }
   };
 
@@ -171,7 +104,7 @@ const Fees = () => {
     <div className="space-y-5">
       <PageHeader
         title="Fee Management"
-        description="Set monthly or multi-month packages, track each installment to package end, and update status every month."
+        description="See every month that was received, who still owes, and mark each month as it comes in."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setPkgOpen(true)}>
@@ -214,158 +147,12 @@ const Fees = () => {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="grid w-full grid-cols-2 h-auto">
-          <TabsTrigger value="dues">Monthly dues</TabsTrigger>
+          <TabsTrigger value="dues">Collection</TabsTrigger>
           <TabsTrigger value="packages">Fee packages</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dues" className="mt-4 space-y-3">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Select value={month} onValueChange={setMonth}>
-              <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {monthOptions().map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Search student" value={q} onChange={(e) => setQ(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="md:hidden space-y-2">
-            {filtered.length === 0 && (
-              <p className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                No dues for this month.
-              </p>
-            )}
-            {filtered.map((row) => (
-              <div key={row.id} className="rounded-2xl border border-border bg-card p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{row.studentName}</p>
-                    <p className="text-xs text-muted-foreground truncate">{row.packageName} · {row.monthLabel}</p>
-                  </div>
-                  <p className="font-semibold shrink-0">{inr(row.amount)}</p>
-                </div>
-                <Badge variant="outline" className={cn("capitalize", STATUS_BADGE[row.status] || "")}>
-                  {row.status}
-                  {row.status === "overdue" && row.daysOverdue > 0 ? ` · ${row.daysOverdue}d` : ""}
-                </Badge>
-                {row.status !== "paid" ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground" onClick={() => void markPaid(row)}>
-                      Mark paid
-                    </Button>
-                    {row.status !== "overdue" ? (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => void markOverdue(row)}>
-                        Mark overdue
-                      </Button>
-                    ) : <span />}
-                  </div>
-                ) : (
-                  <p className="text-xs text-primary inline-flex items-center gap-1">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Paid
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {missingThisMonth.length > 0 && (
-            <div className="rounded-2xl border border-dashed border-border bg-card p-4 space-y-3">
-              <div>
-                <p className="text-sm font-medium">No due on file for {month}</p>
-                <p className="text-xs text-muted-foreground">
-                  These students have no installment this month. Mark received to record it, including a ₹0 fee.
-                </p>
-              </div>
-              <div className="space-y-2">
-                {missingThisMonth.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{s.name}</p>
-                      <p className="text-xs text-muted-foreground">{inr(s.feeAmount)} / month</p>
-                    </div>
-                    <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground shrink-0" onClick={() => void markReceived(s)}>
-                      <Banknote className="h-3.5 w-3.5 mr-1" /> Mark received
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="hidden md:block rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[900px]">
-                <thead className="bg-muted/30 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-medium">Student</th>
-                    <th className="text-left px-4 py-3 font-medium">Package</th>
-                    <th className="text-left px-4 py-3 font-medium">Month</th>
-                    <th className="text-left px-4 py-3 font-medium">Amount</th>
-                    <th className="text-left px-4 py-3 font-medium">Status</th>
-                    <th className="text-right px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                        No dues for this month. Enroll students on a fee package to generate monthly installments.
-                      </td>
-                    </tr>
-                  )}
-                  {filtered.map((row) => (
-                    <tr key={row.id} className="hover:bg-muted/20">
-                      <td className="px-4 py-3 font-medium">{row.studentName}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{row.packageName}</td>
-                      <td className="px-4 py-3">{row.monthLabel}</td>
-                      <td className="px-4 py-3 font-medium">{inr(row.amount)}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline" className={cn("capitalize", STATUS_BADGE[row.status] || "")}>
-                          {row.status}
-                          {row.status === "overdue" && row.daysOverdue > 0 ? ` · ${row.daysOverdue}d` : ""}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          {row.status !== "paid" && (
-                            <>
-                              <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground" onClick={() => void markPaid(row)}>
-                                <Banknote className="h-3.5 w-3.5 mr-1" /> Mark paid
-                              </Button>
-                              {row.status !== "overdue" && (
-                                <Button size="sm" variant="outline" disabled={busy} onClick={() => void markOverdue(row)}>
-                                  Mark overdue
-                                </Button>
-                              )}
-                            </>
-                          )}
-                          {row.status === "paid" && (
-                            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Paid
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <FeeCollectionBoard ledger={ledger} inr={inr} busyKey={busyKey} onMark={(id, name, month) => void markReceived(id, name, month)} />
         </TabsContent>
 
         <TabsContent value="packages" className="mt-4">

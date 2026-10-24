@@ -736,6 +736,18 @@ portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, re
   }
 });
 
+/** Head coach — month-by-month collection board. */
+portalRouter.get("/coach/fee-ledger", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can view fee collection" });
+  }
+  const { buildFeeLedger } = await import("../lib/feeSync.js");
+  const ledger = await buildFeeLedger();
+  res.setHeader("Cache-Control", "no-store");
+  res.json(ledger);
+});
+
 /** Head coach — mark this month received even when no due row exists. ₹0 is allowed. */
 portalRouter.post("/coach/fee-receipts", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);

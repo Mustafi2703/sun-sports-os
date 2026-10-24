@@ -781,7 +781,7 @@ function FeesTab({ child }: { child: ParentChild }) {
                         : "text-muted-foreground"
                   )}
                 >
-                  {i.status}
+                  {i.status === "paid" ? "Received" : i.status === "overdue" ? "To collect" : i.status === "pending" ? "Due" : i.status}
                 </Badge>
               </div>
             ))}

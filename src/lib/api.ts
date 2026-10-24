@@ -61,6 +61,34 @@ export interface Student {
   lastBowlingSpeed?: number[];
 }
 
+export interface FeeLedgerMonth {
+  monthLabel: string;
+  amount: number;
+  status: "paid" | "pending" | "overdue" | "upcoming";
+  paidAt: string | null;
+}
+
+export interface FeeLedgerRow {
+  studentId: string;
+  studentName: string;
+  parentName: string;
+  parentPhone: string;
+  monthlyAmount: number;
+  toCollect: number;
+  received: number;
+  openMonths: number;
+  months: FeeLedgerMonth[];
+}
+
+export interface FeeLedger {
+  asOfMonth: string;
+  toCollect: number;
+  received: number;
+  peopleToCollect: number;
+  peopleClear: number;
+  rows: FeeLedgerRow[];
+}
+
 export interface AttendanceGridDay {
   date: string;
   status: AttendanceMark;
@@ -441,6 +469,8 @@ export const api = {
       }[]
     >(`/api/fee-installments${qs}`);
   },
+  feeLedger: () => request<FeeLedger>("/api/fee-ledger"),
+  coachFeeLedger: () => request<FeeLedger>("/api/portal/coach/fee-ledger"),
   recordFeeReceived: (body: { studentId: string; month?: string; method?: string }) =>
     request<{ ok: boolean; alreadyRecorded: boolean; month: string; amount: number }>("/api/fee-receipts", {
       method: "POST",

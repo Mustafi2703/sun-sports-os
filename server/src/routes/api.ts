@@ -13,6 +13,7 @@ import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
 import {
+  buildFeeLedger,
   enrollStudentOnFeePlan,
   ensureDefaultFeePackages,
   feePlanInputFromBody,
@@ -1108,6 +1109,13 @@ api.delete("/fee-packages/:id", async (req, res) => {
   } catch {
     res.status(404).json({ error: "Package not found" });
   }
+});
+
+/** Month-by-month history and what is still to collect. */
+api.get("/fee-ledger", async (_req, res) => {
+  const ledger = await buildFeeLedger();
+  res.setHeader("Cache-Control", "no-store");
+  res.json(ledger);
 });
 
 /** Mark a month received, creating the due row when it is missing. Amount may be ₹0. */

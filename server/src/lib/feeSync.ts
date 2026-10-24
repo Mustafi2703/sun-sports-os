@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import {
+  addMonths,
   buildMonthSchedule,
   daysBetween,
   monthLabelFromDate,
@@ -294,7 +295,7 @@ export async function recordFeeReceived(
   const student = await prisma.student.findUnique({ where: { id: studentId } });
   if (!student) throw new Error("Student not found");
 
-  const month = String(monthLabel || monthLabelFromDate(new Date()));
+  const month = canonMonth(String(monthLabel || monthLabelFromDate(new Date())));
   const dueDate = parseMonthLabel(month);
   const existing = await prisma.feeInstallment.findFirst({
     where: { studentId, monthLabel: month },
@@ -430,5 +431,150 @@ export function feePlanInputFromBody(body: Record<string, unknown>): FeePlanInpu
     months,
     monthlyAmount,
     startMonth: String(nested.startMonth ?? body.startMonth ?? "") || undefined,
+  };
+}
+
+export type FeeLedgerMonth = {
+  monthLabel: string;
+  amount: number;
+  status: "paid" | "pending" | "overdue" | "upcoming";
+  paidAt: string | null;
+};
+
+export type FeeLedgerRow = {
+  studentId: string;
+  studentName: string;
+  parentName: string;
+  parentPhone: string;
+  monthlyAmount: number;
+  toCollect: number;
+  received: number;
+  openMonths: number;
+  months: FeeLedgerMonth[];
+};
+
+export type FeeLedger = {
+  asOfMonth: string;
+  toCollect: number;
+  received: number;
+  peopleToCollect: number;
+  peopleClear: number;
+  rows: FeeLedgerRow[];
+};
+
+function monthIndex(d: Date) {
+  return d.getFullYear() * 12 + d.getMonth();
+}
+
+function canonMonth(label: string) {
+  return monthLabelFromDate(parseMonthLabel(label));
+}
+
+/** Month-by-month fee history and what is still to collect, for admin and head coach. */
+export async function buildFeeLedger(): Promise<FeeLedger> {
+  const today = new Date();
+  const current = new Date(today.getFullYear(), today.getMonth(), 1);
+  const currentIdx = monthIndex(current);
+
+  const students = await prisma.student.findMany({ orderBy: { name: "asc" } });
+  await Promise.all(students.map((s) => refreshStudentFeeState(s.id).catch(() => undefined)));
+
+  const [installments, enrollments] = await Promise.all([
+    prisma.feeInstallment.findMany({
+      where: {
+        OR: [
+          { enrollment: { status: { in: ["active", "completed"] } } },
+          { status: "paid" },
+        ],
+      },
+    }),
+    prisma.feeEnrollment.findMany({
+      where: { status: "active" },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const instByStudent = new Map<string, typeof installments>();
+  for (const inst of installments) {
+    const list = instByStudent.get(inst.studentId) || [];
+    list.push(inst);
+    instByStudent.set(inst.studentId, list);
+  }
+  const enrollByStudent = new Map<string, (typeof enrollments)[number]>();
+  for (const en of enrollments) {
+    if (!enrollByStudent.has(en.studentId)) enrollByStudent.set(en.studentId, en);
+  }
+
+  const rows: FeeLedgerRow[] = students.map((student) => {
+    const mine = instByStudent.get(student.id) || [];
+    const enroll = enrollByStudent.get(student.id);
+    const monthlyAmount = enroll?.monthlyAmount ?? Math.max(0, student.feeAmount || 0);
+    const byLabel = new Map<string, (typeof mine)[number]>();
+    for (const inst of mine) {
+      const label = canonMonth(inst.monthLabel);
+      const prev = byLabel.get(label);
+      if (!prev || inst.status === "paid") byLabel.set(label, inst);
+    }
+
+    let start = enroll ? parseMonthLabel(enroll.startMonth) : current;
+    let end = enroll ? parseMonthLabel(enroll.endMonth) : current;
+    for (const inst of byLabel.values()) {
+      if (inst.dueDate < start) start = inst.dueDate;
+      if (inst.dueDate > end) end = inst.dueDate;
+    }
+    if (monthIndex(end) < currentIdx) end = current;
+
+    const months: FeeLedgerMonth[] = [];
+    for (let cursor = new Date(start.getFullYear(), start.getMonth(), 1); monthIndex(cursor) <= monthIndex(end); cursor = addMonths(cursor, 1)) {
+      const label = monthLabelFromDate(cursor);
+      const inst = byLabel.get(label);
+      const idx = monthIndex(cursor);
+      const amount = inst?.amount ?? monthlyAmount;
+      if (inst?.status === "paid") {
+        months.push({
+          monthLabel: label,
+          amount,
+          status: "paid",
+          paidAt: inst.paidAt ? inst.paidAt.toISOString() : null,
+        });
+        continue;
+      }
+      if (idx > currentIdx) {
+        months.push({ monthLabel: label, amount, status: "upcoming", paidAt: null });
+        continue;
+      }
+      const overdue = inst?.status === "overdue" || (inst?.daysOverdue || 0) > 0 || idx < currentIdx;
+      months.push({
+        monthLabel: label,
+        amount,
+        status: overdue ? "overdue" : "pending",
+        paidAt: null,
+      });
+    }
+
+    const open = months.filter((m) => m.status === "pending" || m.status === "overdue");
+    const paid = months.filter((m) => m.status === "paid");
+    return {
+      studentId: student.id,
+      studentName: student.name,
+      parentName: student.parentName || "",
+      parentPhone: student.parentPhone || "",
+      monthlyAmount,
+      toCollect: open.reduce((sum, m) => sum + m.amount, 0),
+      received: paid.reduce((sum, m) => sum + m.amount, 0),
+      openMonths: open.length,
+      months,
+    };
+  });
+
+  rows.sort((a, b) => b.toCollect - a.toCollect || a.studentName.localeCompare(b.studentName));
+  const peopleToCollect = rows.filter((r) => r.openMonths > 0).length;
+  return {
+    asOfMonth: monthLabelFromDate(current),
+    toCollect: rows.reduce((sum, r) => sum + r.toCollect, 0),
+    received: rows.reduce((sum, r) => sum + r.received, 0),
+    peopleToCollect,
+    peopleClear: rows.length - peopleToCollect,
+    rows,
   };
 }

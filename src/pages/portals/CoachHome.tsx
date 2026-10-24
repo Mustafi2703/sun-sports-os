@@ -8,6 +8,7 @@ import {
   type FeePackageOption,
   type StudentFormValues,
 } from "@/components/app/StudentFormDialog";
+import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
@@ -23,6 +24,7 @@ import {
   inr,
   type AttendanceMark,
   type CoachPortalData,
+  type FeeLedger,
   type Student,
 } from "@/lib/api";
 import { cn, parseRupees } from "@/lib/utils";
@@ -60,6 +62,7 @@ export default function CoachHome() {
   const [pkgDrafts, setPkgDrafts] = useState<Record<string, string>>({});
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
   const [receiptBusy, setReceiptBusy] = useState<string | null>(null);
+  const [ledger, setLedger] = useState<FeeLedger | null>(null);
 
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -140,6 +143,11 @@ export default function CoachHome() {
   }, [date, activeBatch]);
 
   const isHeadCoach = Boolean(data?.isHeadCoach || data?.coach?.isHeadCoach || data?.canViewFees);
+
+  useEffect(() => {
+    if (!isHeadCoach || tab !== "fees") return;
+    void api.coachFeeLedger().then(setLedger).catch((e) => toast.error(e instanceof Error ? e.message : "Could not load fees"));
+  }, [isHeadCoach, tab]);
   const overdue = isHeadCoach ? students.filter((s) => s.feeStatus !== "paid") : [];
   const lowAtt = students.filter((s) => s.attendancePct > 0 && s.attendancePct < 70);
   const avgAtt = students.length
@@ -352,6 +360,7 @@ export default function CoachHome() {
       }
       setEditingStudent(undefined);
       await refresh();
+      if (isHeadCoach) setLedger(await api.coachFeeLedger());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -370,13 +379,15 @@ export default function CoachHome() {
     }
   };
 
-  const markReceived = async (s: Student) => {
-    setReceiptBusy(s.id);
+  const markReceived = async (studentId: string, studentName: string, month: string) => {
+    const key = `${studentId}:${month}`;
+    setReceiptBusy(key);
     try {
-      const res = await api.coachRecordFeeReceived({ studentId: s.id });
+      const res = await api.coachRecordFeeReceived({ studentId, month });
       toast.success(
-        res.alreadyRecorded ? `${s.name} was already recorded this month` : `${s.name} marked received`
+        res.alreadyRecorded ? `${studentName} — ${month} was already received` : `${studentName} — ${month} marked received`
       );
+      setLedger(await api.coachFeeLedger());
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not record fee");
@@ -814,8 +825,8 @@ export default function CoachHome() {
           {tab === "fees" && isHeadCoach && (
             <div className="space-y-6">
               <PageHeader
-                title="Fee structures"
-                description="Edit package amounts (1 / 3 / 6 / 12 months). Assign packages when adding or editing students."
+                title="Fee collection"
+                description="Month-by-month history. Mark a month received once. The next month stays open until it is received."
                 actions={
                   <Button variant="outline" onClick={() => setEditingStudent(null)}>
                     <Plus className="h-4 w-4 mr-1.5" /> Add student
@@ -860,53 +871,12 @@ export default function CoachHome() {
                   );
                 })}
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <StatCard label="Overdue players" value={String(overdue.length)} icon={<AlertTriangle className="h-4 w-4" />} tone={overdue.length ? "danger" : "success"} />
-                <StatCard label="Amount pending" value={inr(overdueAmount)} icon={<CreditCard className="h-4 w-4" />} tone={overdueAmount ? "danger" : "success"} />
-                <StatCard label="Total players" value={String(students.length)} icon={<Users className="h-4 w-4" />} />
-                <StatCard label="Paid up" value={String(students.length - overdue.length)} icon={<CalendarCheck className="h-4 w-4" />} tone="success" />
-              </div>
-              <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="p-5 border-b border-border">
-                  <h3 className="font-display font-semibold">Fee status by player</h3>
-                </div>
-                <div className="divide-y divide-border">
-                  {students.map((s) => (
-                    <div key={s.id} className="px-5 py-4 flex items-center justify-between gap-3 hover:bg-muted/20 transition-colors">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{s.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          Parent: {s.parentPhone || "—"}
-                          {s.daysOverdue ? ` · ${s.daysOverdue}d overdue` : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <p className="text-sm font-medium">{inr(s.feeAmount)}</p>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px]",
-                              s.feeStatus === "paid" && "text-primary border-primary/30",
-                              s.feeStatus !== "paid" && "text-destructive border-destructive/30"
-                            )}
-                          >
-                            {s.feeStatus === "paid" ? "Paid" : "Overdue"}
-                          </Badge>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="bg-primary text-primary-foreground"
-                          disabled={receiptBusy === s.id}
-                          onClick={() => void markReceived(s)}
-                        >
-                          {receiptBusy === s.id ? "…" : "Mark received"}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <FeeCollectionBoard
+                ledger={ledger}
+                inr={inr}
+                busyKey={receiptBusy}
+                onMark={(id, name, month) => void markReceived(id, name, month)}
+              />
             </div>
           )}
 
