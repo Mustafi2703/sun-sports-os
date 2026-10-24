@@ -19,7 +19,7 @@ import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
-import { type Portal } from "@/lib/api";
+import { api, type Portal } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Module = {
@@ -109,12 +109,18 @@ function normalizePhoneInput(raw: string): string {
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
+type ResetStep = "login" | "phone" | "code" | "done";
+
 export function LoginPage({ portal }: { portal: Portal }) {
   const { login, user, loading } = useAuth();
   const navigate = useNavigate();
   const theme = THEMES[portal];
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState<ResetStep>("login");
+  const [info, setInfo] = useState("");
+  const [devHint, setDevHint] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -143,6 +149,61 @@ export function LoginPage({ portal }: { portal: Portal }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const requestReset = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    setDevHint("");
+    const normalized = normalizePhoneInput(phone);
+    if (normalized.length < 10) {
+      setError("Enter a valid 10-digit mobile number");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.forgotPinRequest({ phone: normalized, portal });
+      setPhone(normalized);
+      setInfo(res.message);
+      setDevHint(res.devOtp || "");
+      setStep("code");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the reset code");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmReset = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const normalized = normalizePhoneInput(phone);
+    if (!/^\d{4,8}$/.test(otp)) {
+      setError("Enter the 6-digit code from SMS");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.forgotPinConfirm({ phone: normalized, portal, otp });
+      setInfo(res.message);
+      setDevHint(res.devPin || "");
+      setOtp("");
+      setPin("");
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset PIN");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const backToLogin = () => {
+    setStep("login");
+    setError("");
+    setInfo("");
+    setDevHint("");
+    setOtp("");
   };
 
   return (
@@ -199,42 +260,126 @@ export function LoginPage({ portal }: { portal: Portal }) {
               <h2 className="font-display text-lg sm:text-xl font-bold">{theme.title}</h2>
             </div>
 
-            <form onSubmit={(e) => void onSubmit(e)} className="space-y-3.5 sm:space-y-4">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
-                <Input
-                  className="h-12 text-base bg-background/50 border-border/80"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="10-digit mobile"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1.5 block">PIN</label>
-                <Input
-                  className="h-12 text-base bg-background/50 border-border/80"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="current-password"
-                  placeholder="PIN"
-                  maxLength={8}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  required
-                />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button
-                type="submit"
-                className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
-                disabled={submitting}
+            {step === "login" ? (
+              <form onSubmit={(e) => void onSubmit(e)} className="space-y-3.5 sm:space-y-4">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
+                  <Input
+                    className="h-12 text-base bg-background/50 border-border/80"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="10-digit mobile"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <label className="text-xs text-muted-foreground">PIN</label>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        setError("");
+                        setInfo("");
+                        setStep("phone");
+                      }}
+                    >
+                      Forgot PIN?
+                    </button>
+                  </div>
+                  <Input
+                    className="h-12 text-base bg-background/50 border-border/80"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    placeholder="PIN"
+                    maxLength={8}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    required
+                  />
+                </div>
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button
+                  type="submit"
+                  className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
+                  disabled={submitting}
+                >
+                  {submitting ? "Signing in…" : theme.cta}
+                </Button>
+              </form>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  if (step === "code") void confirmReset(e);
+                  else if (step === "phone") void requestReset(e);
+                  else e.preventDefault();
+                }}
+                className="space-y-3.5 sm:space-y-4"
               >
-                {submitting ? "Signing in…" : theme.cta}
-              </Button>
-            </form>
+                <div>
+                  <p className="text-sm font-medium">Reset PIN</p>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                    We’ll text a code to the mobile number already on your Sun Sports profile. After that, a temporary PIN arrives by SMS.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
+                  <Input
+                    className="h-12 text-base bg-background/50 border-border/80"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="10-digit mobile"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={step !== "phone"}
+                    required
+                  />
+                </div>
+                {step === "code" && (
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1.5 block">SMS code</label>
+                    <Input
+                      className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em]"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      maxLength={8}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                      required
+                    />
+                  </div>
+                )}
+                {info && <p className="text-sm text-muted-foreground">{info}</p>}
+                {devHint && (
+                  <p className="text-xs text-amber-300">Test only, SMS is off: {devHint}</p>
+                )}
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                {step !== "done" ? (
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Please wait…" : step === "phone" ? "Send reset code" : "Confirm code"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
+                    onClick={backToLogin}
+                  >
+                    Sign in with the new PIN
+                  </Button>
+                )}
+                <button type="button" className="w-full text-xs text-muted-foreground hover:text-foreground" onClick={backToLogin}>
+                  Back to sign in
+                </button>
+              </form>
+            )}
 
             <div className="pt-1 border-t border-border/60">
               <p className="text-[11px] text-muted-foreground text-center mb-2">Other portals</p>

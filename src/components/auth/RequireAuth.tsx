@@ -1,4 +1,5 @@
 import { Navigate } from "react-router-dom";
+import { ForceChangePin } from "@/components/auth/ChangePinForm";
 import { useAuth } from "@/context/AuthContext";
 import type { UserRole } from "@/lib/api";
 
@@ -25,6 +26,10 @@ export function RequireAuth({
 
   if (!user || user.role !== role || !token) {
     return <Navigate to={loginPath} replace />;
+  }
+
+  if (user.mustChangePin) {
+    return <ForceChangePin />;
   }
 
   return <>{children}</>;

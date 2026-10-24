@@ -55,7 +55,7 @@ function resetChallengePortal(portal: string) {
 }
 
 function generateTempPin(): string {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 /**
@@ -240,15 +240,18 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
     }
 
     const result = await createAndSendOtp(phone, resetChallengePortal(portal), "reset");
+    if (!result.smsDelivered && !result.devOtp) {
+      return res.status(503).json({
+        error: "Could not send the reset code. Try again in a moment.",
+      });
+    }
     res.json({
       ok: true,
       expiresInSeconds: result.expiresInSeconds,
       smsDelivered: result.smsDelivered,
       message: result.smsDelivered
         ? "Reset code sent by SMS"
-        : result.devOtp
-          ? "Reset code generated (SMS not configured — use the on-screen code)"
-          : "Could not send the reset code. Try again in a moment.",
+        : "Reset code generated (SMS not configured — use the on-screen code)",
       ...(result.devOtp ? { devOtp: result.devOtp } : {}),
     });
   } catch (e) {
