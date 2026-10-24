@@ -64,7 +64,7 @@ export function PortalShell({
     <div className="app-shell min-h-dvh">
       <div className="flex">
         {/* Sidebar (desktop) */}
-        <aside className="hidden lg:flex sticky top-0 h-screen w-64 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
+        <aside className="hidden lg:flex sticky top-0 h-screen w-64 shrink-0 flex-col border-r border-border/70 bg-card/40 backdrop-blur-md px-3 py-5">
           <div className="px-2 mb-6">
             <Link to="/">
               <Logo />

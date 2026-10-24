@@ -3,7 +3,6 @@ import { Banknote, CheckCircle2, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { FeeLedger, FeeLedgerMonth, FeeLedgerRow } from "@/lib/api";
 
@@ -114,7 +113,7 @@ export function FeeCollectionBoard({
   const peopleClear = monthTotals?.peopleClear ?? ledger?.peopleClear ?? 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 max-w-full">
       <div className="grid sm:grid-cols-3 gap-3">
         <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-xs text-muted-foreground">Still to collect{selected !== ALL_MONTHS ? ` · ${selected}` : ""}</p>
@@ -135,25 +134,27 @@ export function FeeCollectionBoard({
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-2">
-        <Select value={selected} onValueChange={setMonth}>
-          <SelectTrigger className="w-full lg:w-52 h-10">
-            <SelectValue placeholder="Month" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_MONTHS}>All months</SelectItem>
+      <div className="flex flex-col gap-2 min-w-0 sm:flex-row sm:flex-wrap sm:items-center">
+        <label className="w-full sm:w-48 shrink-0">
+          <span className="sr-only">Month</span>
+          <select
+            value={selected}
+            onChange={(e) => setMonth(e.target.value)}
+            className="h-11 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"
+          >
+            <option value={ALL_MONTHS}>All months</option>
             {[...options].reverse().map((label) => (
-              <SelectItem key={label} value={label}>{label}</SelectItem>
+              <option key={label} value={label}>{label}</option>
             ))}
-          </SelectContent>
-        </Select>
-        <div className="flex rounded-lg border border-border p-0.5">
+          </select>
+        </label>
+        <div className="grid grid-cols-3 sm:flex rounded-lg border border-border p-0.5 w-full sm:w-auto shrink-0">
           {FILTERS.map((item) => (
             <button
               key={item.id}
               type="button"
               className={cn(
-                "px-3 py-2 text-xs rounded-md min-h-[36px]",
+                "px-2 sm:px-3 py-2 text-xs rounded-md min-h-[40px]",
                 filter === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground"
               )}
               onClick={() => setFilter(item.id)}
@@ -162,9 +163,9 @@ export function FeeCollectionBoard({
             </button>
           ))}
         </div>
-        <div className="relative flex-1">
+        <div className="relative w-full sm:flex-1 sm:min-w-[12rem]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search player or parent phone" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="pl-9 h-11" placeholder="Search player or phone" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -184,14 +185,14 @@ export function FeeCollectionBoard({
             const key = `${row.studentId}:${slice.monthLabel}`;
             const open = slice.status !== "paid";
             return (
-              <div key={row.studentId} className="px-4 py-3 flex items-center justify-between gap-3">
+              <div key={row.studentId} className="px-3 py-3 sm:px-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{row.studentName}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {row.parentName || "Parent"} · {row.parentPhone || "no phone"}
                   </p>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center justify-between sm:justify-end gap-3">
                   <p className="text-sm font-semibold">{inr(slice.amount)}</p>
                   {open ? (
                     <Button
@@ -233,7 +234,7 @@ export function FeeCollectionBoard({
                   </p>
                 </div>
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-2 overflow-x-auto pb-1 min-w-0 max-w-full">
                 {row.months.map((item) => {
                   const key = `${row.studentId}:${item.monthLabel}`;
                   const open = item.status !== "paid";
