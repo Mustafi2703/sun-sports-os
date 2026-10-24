@@ -3,6 +3,7 @@ import {
   buildMonthSchedule,
   daysBetween,
   monthLabelFromDate,
+  parseMonthLabel,
   studentFeeFieldsFromInstallment,
 } from "./fees.js";
 
@@ -14,6 +15,14 @@ export {
   daysBetween,
   studentFeeFieldsFromInstallment,
 } from "./fees.js";
+
+/** Blank is missing. 0 is a real fee. */
+export function optionalRupees(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n);
+}
 
 /** Refresh overdue flags, then sync student.fee* from the next open installment. */
 export async function refreshStudentFeeState(studentId: string) {
@@ -198,10 +207,12 @@ export async function enrollStudentOnFeePlan(
 
   let packageName = String(input.packageName || "").trim();
   let months = Math.max(1, Number(input.months) || 1);
-  let monthlyAmount = Math.max(
-    0,
-    Number(input.monthlyAmount) || student.feeAmount || fallbackMonthlyAmount
-  );
+  const explicitAmount = optionalRupees(input.monthlyAmount);
+  let monthlyAmount =
+    explicitAmount ??
+    (Number.isFinite(student.feeAmount) && student.feeAmount >= 0
+      ? student.feeAmount
+      : fallbackMonthlyAmount);
   let packageId: string | null = input.packageId ? String(input.packageId) : null;
 
   if (packageId) {
@@ -209,11 +220,8 @@ export async function enrollStudentOnFeePlan(
     if (!pkg) throw new Error("Package not found");
     if (!packageName) packageName = pkg.name;
     months = pkg.months;
-    // Keep per-student custom amount when provided; package amount is only the default
-    const explicit = input.monthlyAmount != null && Number.isFinite(Number(input.monthlyAmount));
-    if (!explicit) {
-      monthlyAmount = pkg.monthlyAmount;
-    }
+    // Keep a per-student amount when it was sent, including ₹0. Package amount is only the default.
+    if (explicitAmount == null) monthlyAmount = pkg.monthlyAmount;
   }
   if (!packageName) {
     packageName =
@@ -274,6 +282,89 @@ export async function enrollStudentOnFeePlan(
   return enrollment;
 }
 
+/**
+ * Record that a month's fee was received.
+ * If that month has no installment, one is created and marked paid (amount may be ₹0).
+ */
+export async function recordFeeReceived(
+  studentId: string,
+  monthLabel?: string,
+  method = "cash"
+) {
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
+  if (!student) throw new Error("Student not found");
+
+  const month = String(monthLabel || monthLabelFromDate(new Date()));
+  const dueDate = parseMonthLabel(month);
+  const existing = await prisma.feeInstallment.findFirst({
+    where: { studentId, monthLabel: month },
+    orderBy: { dueDate: "desc" },
+  });
+
+  if (existing?.status === "paid") {
+    await refreshStudentFeeState(studentId);
+    return { ok: true as const, alreadyRecorded: true, month, amount: existing.amount };
+  }
+
+  const active = await prisma.feeEnrollment.findFirst({
+    where: { studentId, status: "active" },
+    orderBy: { createdAt: "desc" },
+  });
+  const amount =
+    existing?.amount ??
+    active?.monthlyAmount ??
+    (Number.isFinite(student.feeAmount) && student.feeAmount >= 0 ? student.feeAmount : 0);
+
+  let installmentId = existing?.id;
+  if (!installmentId) {
+    let enrollmentId = active?.id;
+    if (!enrollmentId) {
+      const created = await prisma.feeEnrollment.create({
+        data: {
+          studentId,
+          packageName: "Recorded receipt",
+          months: 1,
+          monthlyAmount: amount,
+          totalAmount: amount,
+          startMonth: month,
+          endMonth: month,
+          status: "completed",
+        },
+      });
+      enrollmentId = created.id;
+    }
+    const createdInst = await prisma.feeInstallment.create({
+      data: {
+        enrollmentId,
+        studentId,
+        monthLabel: month,
+        dueDate,
+        amount,
+        status: "pending",
+        daysOverdue: 0,
+      },
+    });
+    installmentId = createdInst.id;
+  }
+
+  const payment = await prisma.feePayment.create({
+    data: {
+      studentId,
+      amount,
+      method,
+      month,
+      note: `Fee received ${month}`,
+      installmentId,
+    },
+  });
+  await prisma.feeInstallment.update({
+    where: { id: installmentId },
+    data: { status: "paid", daysOverdue: 0, paidAt: payment.paidAt, amount },
+  });
+  await refreshStudentFeeState(studentId);
+  return { ok: true as const, alreadyRecorded: false, month, amount };
+}
+
 /** True when request body asks to create/replace a fee plan */
 export function shouldEnrollFeeFromBody(body: Record<string, unknown>): boolean {
   if (body.enrollFee === false || body.enrollFee === "false") return false;
@@ -296,8 +387,10 @@ export function feeRatesFromBody(body: Record<string, unknown>, fallbacks?: {
       : {};
   const pick = (keys: string[], fallback: number) => {
     for (const k of keys) {
-      if (body[k] != null && Number(body[k]) > 0) return Number(body[k]);
-      if (nested[k] != null && Number(nested[k]) > 0) return Number(nested[k]);
+      const fromBody = optionalRupees(body[k]);
+      if (fromBody != null) return fromBody;
+      const fromNested = optionalRupees(nested[k]);
+      if (fromNested != null) return fromNested;
     }
     return fallback;
   };
@@ -325,10 +418,9 @@ export function feePlanInputFromBody(body: Record<string, unknown>): FeePlanInpu
       ? (body.feePlan as Record<string, unknown>)
       : {};
   const months = Number(nested.months ?? body.feeMonths ?? body.months) || undefined;
-  let monthlyAmount =
-    Number(nested.monthlyAmount ?? body.monthlyAmount ?? body.feeAmount) || undefined;
+  let monthlyAmount = optionalRupees(nested.monthlyAmount ?? body.monthlyAmount ?? body.feeAmount);
   // If amount not sent, derive from this student's rate card fields on the body
-  if (!monthlyAmount && months) {
+  if (monthlyAmount == null && months) {
     const rates = feeRatesFromBody(body);
     monthlyAmount = rateForMonths(months, rates);
   }

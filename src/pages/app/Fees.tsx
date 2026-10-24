@@ -110,6 +110,17 @@ const Fees = () => {
     });
   }, [installments, statusFilter, q]);
 
+  const missingThisMonth = useMemo(() => {
+    if (statusFilter === "paid" || statusFilter === "overdue") return [];
+    const covered = new Set(installments.map((i) => i.studentId));
+    const query = q.trim().toLowerCase();
+    return students.filter((s) => {
+      if (covered.has(s.id)) return false;
+      if (query && !s.name.toLowerCase().includes(query) && !(s.parentPhone || "").includes(query)) return false;
+      return true;
+    });
+  }, [installments, students, statusFilter, q]);
+
   const markPaid = async (row: InstallmentRow) => {
     setBusy(true);
     try {
@@ -119,6 +130,24 @@ const Fees = () => {
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markReceived = async (student: Student) => {
+    setBusy(true);
+    try {
+      const res = await api.recordFeeReceived({ studentId: student.id, month });
+      toast.success(
+        res.alreadyRecorded
+          ? `${student.name} was already recorded for ${month}`
+          : `${student.name} — ${month} marked received`
+      );
+      await load();
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record fee");
     } finally {
       setBusy(false);
     }
@@ -252,6 +281,30 @@ const Fees = () => {
               </div>
             ))}
           </div>
+
+          {missingThisMonth.length > 0 && (
+            <div className="rounded-2xl border border-dashed border-border bg-card p-4 space-y-3">
+              <div>
+                <p className="text-sm font-medium">No due on file for {month}</p>
+                <p className="text-xs text-muted-foreground">
+                  These students have no installment this month. Mark received to record it, including a ₹0 fee.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {missingThisMonth.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{s.name}</p>
+                      <p className="text-xs text-muted-foreground">{inr(s.feeAmount)} / month</p>
+                    </div>
+                    <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground shrink-0" onClick={() => void markReceived(s)}>
+                      <Banknote className="h-3.5 w-3.5 mr-1" /> Mark received
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="hidden md:block rounded-2xl border border-border bg-card overflow-hidden">
             <div className="overflow-x-auto">
@@ -497,7 +550,7 @@ function EnrollDialog({
                   studentId,
                   startMonth,
                   months: 1,
-                  monthlyAmount: s?.feeAmount || 15000,
+                  monthlyAmount: s?.feeAmount ?? 15000,
                   packageName: "Monthly",
                 });
               }
@@ -568,7 +621,14 @@ function CreatePackageDialog({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
             className="bg-primary text-primary-foreground"
-            disabled={busy || !name.trim() || !Number(months) || !Number(monthlyAmount)}
+            disabled={
+              busy ||
+              !name.trim() ||
+              !Number(months) ||
+              monthlyAmount.trim() === "" ||
+              !Number.isFinite(Number(monthlyAmount)) ||
+              Number(monthlyAmount) < 0
+            }
             onClick={() =>
               void onSave({
                 name: name.trim(),

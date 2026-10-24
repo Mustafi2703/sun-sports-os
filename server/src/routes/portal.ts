@@ -466,9 +466,12 @@ portalRouter.post("/coach/fee-packages", requireAuth("coach"), async (req, res) 
     return res.status(403).json({ error: "Only head coach can create fee structures" });
   }
   const name = String(req.body.name || "").trim();
+  const { optionalRupees } = await import("../lib/feeSync.js");
   const months = Math.max(1, Number(req.body.months) || 1);
-  const monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || 0);
-  if (!name || !monthlyAmount) return res.status(400).json({ error: "name and monthlyAmount required" });
+  const monthlyAmount = optionalRupees(req.body.monthlyAmount);
+  if (!name || monthlyAmount == null) {
+    return res.status(400).json({ error: "name and monthlyAmount required" });
+  }
   const row = await prisma.feePackage.create({
     data: {
       name,
@@ -502,6 +505,7 @@ portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
     enrollStudentOnFeePlan,
     feePlanInputFromBody,
     feeRatesFromBody,
+    optionalRupees,
     shouldEnrollFeeFromBody,
   } = await import("../lib/feeSync.js");
 
@@ -524,7 +528,7 @@ portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
       parentPhone,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
-      feeAmount: Number(req.body.feeAmount) || rates.feeRate1,
+      feeAmount: optionalRupees(req.body.feeAmount) ?? rates.feeRate1,
       feeRate1: rates.feeRate1,
       feeRate3: rates.feeRate3,
       feeRate6: rates.feeRate6,
@@ -728,6 +732,28 @@ portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, re
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Enrollment failed";
+    res.status(msg.includes("not found") ? 404 : 400).json({ error: msg });
+  }
+});
+
+/** Head coach — mark this month received even when no due row exists. ₹0 is allowed. */
+portalRouter.post("/coach/fee-receipts", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can record fees" });
+  }
+  const { recordFeeReceived } = await import("../lib/feeSync.js");
+  const studentId = String(req.body.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  try {
+    const result = await recordFeeReceived(
+      studentId,
+      req.body.month ? String(req.body.month) : undefined,
+      req.body.method ? String(req.body.method) : "cash"
+    );
+    res.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not record fee";
     res.status(msg.includes("not found") ? 404 : 400).json({ error: msg });
   }
 });

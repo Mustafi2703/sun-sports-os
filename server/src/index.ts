@@ -11,6 +11,7 @@ import { ageFromDob } from "./lib/mappers.js";
 import { bootstrapPortalUsers } from "./lib/bootstrapUsers.js";
 import { requireAuth } from "./lib/auth.js";
 import { ensureDefaultFeePackages, ensureHeadCoachFlags } from "./lib/feeSync.js";
+import { smsStatusLine } from "./lib/sms.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -116,7 +117,10 @@ app.post("/api/import/excel", requireAuth("admin"), upload.single("file"), async
         [...coachMap.entries()].find(([n]) => coachName.toLowerCase().includes(n.split(" ")[0]))?.[1] ||
         [...coachMap.values()][0] ||
         null;
-      const fee = Number(val(row, ["Monthly Fee", "fee", "₹"]) || 15000) || 15000;
+      const feeRaw = val(row, ["Monthly Fee", "fee", "₹"]);
+      const feeNum = Number(feeRaw);
+      const fee =
+        feeRaw == null || feeRaw === "" || !Number.isFinite(feeNum) ? 15000 : Math.max(0, Math.round(feeNum));
       const existing = await prisma.batch.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
       const batch = existing
         ? await prisma.batch.update({
@@ -242,6 +246,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Sun Sports API listening on :${PORT}`);
+  console.log(smsStatusLine());
   try {
     await prisma.enquiry.deleteMany({ where: { parentName: "Sample Parent" } });
     await prisma.feePayment.deleteMany({ where: { note: "Monthly HP fee" } });

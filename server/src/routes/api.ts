@@ -18,6 +18,8 @@ import {
   feePlanInputFromBody,
   feeRatesFromBody,
   monthLabelFromDate,
+  optionalRupees,
+  recordFeeReceived,
   refreshStudentFeeState,
   shouldEnrollFeeFromBody,
 } from "../lib/feeSync.js";
@@ -229,7 +231,7 @@ api.post("/batches", async (req, res) => {
       time: req.body.time || null,
       venue: req.body.venue || "Sun Sports Ground",
       capacity: Number(req.body.capacity) || 20,
-      monthlyFee: Number(req.body.monthlyFee) || 15000,
+      monthlyFee: optionalRupees(req.body.monthlyFee) ?? 15000,
       coachId: req.body.coachId || null,
     },
     include: { _count: { select: { students: true } } },
@@ -340,7 +342,7 @@ api.post("/students", async (req, res) => {
       parentPhone,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
-      feeAmount: Number(req.body.feeAmount) || rates.feeRate1,
+      feeAmount: optionalRupees(req.body.feeAmount) ?? rates.feeRate1,
       feeRate1: rates.feeRate1,
       feeRate3: rates.feeRate3,
       feeRate6: rates.feeRate6,
@@ -558,7 +560,9 @@ api.get("/payments", async (req, res) => {
 api.post("/payments", async (req, res) => {
   const studentId = String(req.body.studentId || "");
   const amount = Number(req.body.amount);
-  if (!studentId || !amount) return res.status(400).json({ error: "studentId and amount required" });
+  if (!studentId || !Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "studentId and amount required (0 is allowed)" });
+  }
   const payment = await prisma.feePayment.create({
     data: {
       studentId,
@@ -1048,8 +1052,10 @@ api.get("/fee-packages", async (_req, res) => {
 api.post("/fee-packages", async (req, res) => {
   const name = String(req.body.name || "").trim();
   const months = Math.max(1, Number(req.body.months) || 1);
-  const monthlyAmount = Math.max(0, Number(req.body.monthlyAmount) || 0);
-  if (!name || !monthlyAmount) return res.status(400).json({ error: "name and monthlyAmount required" });
+  const monthlyAmount = optionalRupees(req.body.monthlyAmount);
+  if (!name || monthlyAmount == null) {
+    return res.status(400).json({ error: "name and monthlyAmount required" });
+  }
   const totalAmount = Number(req.body.totalAmount) || monthlyAmount * months;
   const row = await prisma.feePackage.create({
     data: {
@@ -1101,6 +1107,23 @@ api.delete("/fee-packages/:id", async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Package not found" });
+  }
+});
+
+/** Mark a month received, creating the due row when it is missing. Amount may be ₹0. */
+api.post("/fee-receipts", async (req, res) => {
+  const studentId = String(req.body.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  try {
+    const result = await recordFeeReceived(
+      studentId,
+      req.body.month ? String(req.body.month) : undefined,
+      req.body.method ? String(req.body.method) : "cash"
+    );
+    res.json(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not record fee";
+    res.status(msg.includes("not found") ? 404 : 400).json({ error: msg });
   }
 });
 

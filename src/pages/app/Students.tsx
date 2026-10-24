@@ -12,7 +12,7 @@ import {
   type StudentFormValues,
 } from "@/components/app/StudentFormDialog";
 import { useAcademy } from "@/context/AcademyContext";
-import { cn } from "@/lib/utils";
+import { cn, parseRupees } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Student } from "@/lib/api";
 
@@ -81,12 +81,12 @@ const Students = () => {
 
   const feePlanBody = (values: StudentFormValues, shouldEnroll: boolean) => {
     const months = Math.max(1, Number(values.planMonths) || 1);
-    const monthlyAmount = Number(values.feeAmount) || 15000;
+    const monthlyAmount = parseRupees(values.feeAmount, 15000);
     const rates = {
-      feeRate1: Number(values.feeRate1) || 15000,
-      feeRate3: Number(values.feeRate3) || 14000,
-      feeRate6: Number(values.feeRate6) || 13000,
-      feeRate12: Number(values.feeRate12) || 12000,
+      feeRate1: parseRupees(values.feeRate1, 15000),
+      feeRate3: parseRupees(values.feeRate3, 14000),
+      feeRate6: parseRupees(values.feeRate6, 13000),
+      feeRate12: parseRupees(values.feeRate12, 12000),
     };
     const packageName =
       months === 12 ? "1 year" : months === 1 ? "Monthly" : months === 3 ? "Quarterly" : months === 6 ? "Half year" : `${months}-month plan`;
@@ -112,7 +112,7 @@ const Students = () => {
   const saveStudent = async (values: StudentFormValues) => {
     setBusy(true);
     try {
-      const monthly = Number(values.feeAmount) || 15000;
+      const monthly = parseRupees(values.feeAmount, 15000);
       const shouldEnroll = !editing || values.enrollFee;
       const body = {
         name: values.name.trim(),

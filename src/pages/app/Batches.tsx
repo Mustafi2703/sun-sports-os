@@ -25,7 +25,7 @@ const Batches = () => {
         time: values.time,
         venue: values.venue,
         capacity: Number(values.capacity) || 20,
-        monthlyFee: Number(values.monthlyFee) || 15000,
+        monthlyFee: values.monthlyFee.trim() === "" ? 15000 : Math.max(0, Number(values.monthlyFee) || 0),
         coachId: values.coachId || undefined,
       };
       if (editing) await api.updateBatch(editing.id, body);

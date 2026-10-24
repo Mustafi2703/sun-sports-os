@@ -441,6 +441,16 @@ export const api = {
       }[]
     >(`/api/fee-installments${qs}`);
   },
+  recordFeeReceived: (body: { studentId: string; month?: string; method?: string }) =>
+    request<{ ok: boolean; alreadyRecorded: boolean; month: string; amount: number }>("/api/fee-receipts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  coachRecordFeeReceived: (body: { studentId: string; month?: string; method?: string }) =>
+    request<{ ok: boolean; alreadyRecorded: boolean; month: string; amount: number }>(
+      "/api/portal/coach/fee-receipts",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
   updateFeeInstallment: (
     id: string,
     body: { status?: string; markPaid?: boolean; method?: string; amount?: number; daysOverdue?: number; note?: string }

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { cn, parseRupees } from "@/lib/utils";
 import type { Batch, Coach, Student } from "@/lib/api";
 
 export type FeePackageOption = {
@@ -74,18 +74,18 @@ const DURATION_PRESETS = [
 ] as const;
 
 function rateForPlan(form: StudentFormValues, months: number): number {
-  if (months >= 12) return Number(form.feeRate12) || 12000;
-  if (months >= 6) return Number(form.feeRate6) || 13000;
-  if (months >= 3) return Number(form.feeRate3) || 14000;
-  return Number(form.feeRate1) || 15000;
+  if (months >= 12) return parseRupees(form.feeRate12, 12000);
+  if (months >= 6) return parseRupees(form.feeRate6, 13000);
+  if (months >= 3) return parseRupees(form.feeRate3, 14000);
+  return parseRupees(form.feeRate1, 15000);
 }
 
 const empty = (batches: Batch[], packages: FeePackageOption[]): StudentFormValues => {
   const byMonths = (m: number) => packages.find((p) => p.months === m && p.active !== false);
-  const r1 = byMonths(1)?.monthlyAmount || batches[0]?.monthlyFee || 15000;
-  const r3 = byMonths(3)?.monthlyAmount || 14000;
-  const r6 = byMonths(6)?.monthlyAmount || 13000;
-  const r12 = byMonths(12)?.monthlyAmount || 12000;
+  const r1 = byMonths(1)?.monthlyAmount ?? batches[0]?.monthlyFee ?? 15000;
+  const r3 = byMonths(3)?.monthlyAmount ?? 14000;
+  const r6 = byMonths(6)?.monthlyAmount ?? 13000;
+  const r12 = byMonths(12)?.monthlyAmount ?? 12000;
   return {
     name: "",
     dob: "",
@@ -145,7 +145,7 @@ export function StudentFormDialog({
     if (!open) return;
     if (student) {
       const rates = student.feeRates || {
-        m1: student.feeAmount || 15000,
+        m1: student.feeAmount ?? 15000,
         m3: 14000,
         m6: 13000,
         m12: 12000,
@@ -252,7 +252,7 @@ export function StudentFormDialog({
               <div>
                 <p className="text-sm font-medium">This student’s fee structure</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Each student has their own amounts for 1 / 3 / 6 / 12 month plans.
+                  Each student has their own amounts for 1 / 3 / 6 / 12 month plans. Enter 0 if they are not charged.
                 </p>
               </div>
               {student && (

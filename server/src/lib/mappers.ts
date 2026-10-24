@@ -40,7 +40,7 @@ export function mapStudent(s: Student) {
   };
   const rate = (v: number | null | undefined, fallback: number) => {
     const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : fallback;
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
   };
   const sAny = s as Student & {
     feeRate1?: number;

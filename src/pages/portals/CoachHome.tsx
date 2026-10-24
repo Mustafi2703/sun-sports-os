@@ -25,7 +25,7 @@ import {
   type CoachPortalData,
   type Student,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, parseRupees } from "@/lib/utils";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 
@@ -59,6 +59,7 @@ export default function CoachHome() {
   const [studentBusy, setStudentBusy] = useState(false);
   const [pkgDrafts, setPkgDrafts] = useState<Record<string, string>>({});
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState<string | null>(null);
 
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -298,12 +299,12 @@ export default function CoachHome() {
 
   const feePlanBody = (values: StudentFormValues, shouldEnroll: boolean) => {
     const months = Math.max(1, Number(values.planMonths) || 1);
-    const monthlyAmount = Number(values.feeAmount) || 15000;
+    const monthlyAmount = parseRupees(values.feeAmount, 15000);
     const rates = {
-      feeRate1: Number(values.feeRate1) || 15000,
-      feeRate3: Number(values.feeRate3) || 14000,
-      feeRate6: Number(values.feeRate6) || 13000,
-      feeRate12: Number(values.feeRate12) || 12000,
+      feeRate1: parseRupees(values.feeRate1, 15000),
+      feeRate3: parseRupees(values.feeRate3, 14000),
+      feeRate6: parseRupees(values.feeRate6, 13000),
+      feeRate12: parseRupees(values.feeRate12, 12000),
     };
     const packageName =
       months === 12 ? "1 year" : months === 1 ? "Monthly" : months === 3 ? "Quarterly" : months === 6 ? "Half year" : `${months}-month plan`;
@@ -328,7 +329,7 @@ export default function CoachHome() {
   const saveStudentAsHead = async (values: StudentFormValues) => {
     setStudentBusy(true);
     try {
-      const monthly = Number(values.feeAmount) || 15000;
+      const monthly = parseRupees(values.feeAmount, 15000);
       const shouldEnroll = !editingStudent || values.enrollFee;
       const body = {
         name: values.name.trim(),
@@ -369,10 +370,25 @@ export default function CoachHome() {
     }
   };
 
+  const markReceived = async (s: Student) => {
+    setReceiptBusy(s.id);
+    try {
+      const res = await api.coachRecordFeeReceived({ studentId: s.id });
+      toast.success(
+        res.alreadyRecorded ? `${s.name} was already recorded this month` : `${s.name} marked received`
+      );
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record fee");
+    } finally {
+      setReceiptBusy(null);
+    }
+  };
+
   const savePackageAmount = async (pkgId: string) => {
     const amount = Number(pkgDrafts[pkgId]);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Enter a valid monthly amount");
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error("Enter a monthly amount. 0 is allowed.");
       return;
     }
     setPkgBusy(pkgId);
@@ -855,7 +871,7 @@ export default function CoachHome() {
                   <h3 className="font-display font-semibold">Fee status by player</h3>
                 </div>
                 <div className="divide-y divide-border">
-                  {(overdue.length ? overdue : students).map((s) => (
+                  {students.map((s) => (
                     <div key={s.id} className="px-5 py-4 flex items-center justify-between gap-3 hover:bg-muted/20 transition-colors">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{s.name}</p>
@@ -864,18 +880,28 @@ export default function CoachHome() {
                           {s.daysOverdue ? ` · ${s.daysOverdue}d overdue` : ""}
                         </p>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-medium">{inr(s.feeAmount)}</p>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-[10px]",
-                            s.feeStatus === "paid" && "text-primary border-primary/30",
-                            s.feeStatus !== "paid" && "text-destructive border-destructive/30"
-                          )}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <p className="text-sm font-medium">{inr(s.feeAmount)}</p>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px]",
+                              s.feeStatus === "paid" && "text-primary border-primary/30",
+                              s.feeStatus !== "paid" && "text-destructive border-destructive/30"
+                            )}
+                          >
+                            {s.feeStatus === "paid" ? "Paid" : "Overdue"}
+                          </Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-primary text-primary-foreground"
+                          disabled={receiptBusy === s.id}
+                          onClick={() => void markReceived(s)}
                         >
-                          {s.feeStatus === "paid" ? "Paid" : "Overdue"}
-                        </Badge>
+                          {receiptBusy === s.id ? "…" : "Mark received"}
+                        </Button>
                       </div>
                     </div>
                   ))}
