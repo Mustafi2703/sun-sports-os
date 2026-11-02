@@ -23,6 +23,7 @@ export type StudentFormValues = {
   dob: string;
   parentName: string;
   parentPhone: string;
+  parentEmail: string;
   batchId: string;
   role: string;
   feeStatus: string;
@@ -91,6 +92,7 @@ const empty = (batches: Batch[], packages: FeePackageOption[]): StudentFormValue
     dob: "",
     parentName: "",
     parentPhone: "",
+    parentEmail: "",
     batchId: batches[0]?.id || "",
     role: "",
     feeStatus: "paid",
@@ -158,6 +160,7 @@ export function StudentFormDialog({
         dob: student.dob || "",
         parentName: student.parentName || "",
         parentPhone: student.parentPhone || "",
+        parentEmail: student.parentEmail || "",
         batchId: student.batchId || batches[0]?.id || "",
         role: student.role || "",
         feeStatus: student.feeStatus,
@@ -221,6 +224,18 @@ export function StudentFormDialog({
             />
             <p className="text-[11px] text-muted-foreground mt-1">
               Creates/updates the parent portal account for this number.
+            </p>
+          </Field>
+          <Field label="Parent email (for Forgot PIN)">
+            <Input
+              type="email"
+              value={form.parentEmail}
+              onChange={(e) => set("parentEmail", e.target.value)}
+              autoComplete="email"
+              placeholder="parent@email.com"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Reset codes and temporary PINs are sent here.
             </p>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

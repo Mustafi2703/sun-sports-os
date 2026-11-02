@@ -12,6 +12,7 @@ import { bootstrapPortalUsers } from "./lib/bootstrapUsers.js";
 import { requireAuth } from "./lib/auth.js";
 import { ensureDefaultFeePackages, ensureHeadCoachFlags } from "./lib/feeSync.js";
 import { smsStatusLine } from "./lib/sms.js";
+import { emailStatusLine } from "./lib/email.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -247,6 +248,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Sun Sports API listening on :${PORT}`);
   console.log(smsStatusLine());
+  console.log(emailStatusLine());
   try {
     await prisma.enquiry.deleteMany({ where: { parentName: "Sample Parent" } });
     await prisma.feePayment.deleteMany({ where: { note: "Monthly HP fee" } });

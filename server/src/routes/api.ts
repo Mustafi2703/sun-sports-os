@@ -12,6 +12,7 @@ import {
 import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
 import { normalizePhone } from "../lib/auth.js";
+import { normalizeEmail } from "../lib/email.js";
 import {
   buildFeeLedger,
   enrollStudentOnFeePlan,
@@ -111,11 +112,12 @@ api.post("/coaches", async (req, res) => {
     return res.status(400).json({ error: "Valid 10-digit coach phone required for portal login" });
   }
   const initials = name.split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase();
+  const email = normalizeEmail(req.body.email);
   const row = await prisma.coach.create({
     data: {
       name,
       phone,
-      email: req.body.email || null,
+      email,
       specialty: req.body.specialty || null,
       initials,
       salaryMonthly: Number(req.body.salaryMonthly) || 0,
@@ -131,6 +133,7 @@ api.post("/coaches", async (req, res) => {
       name: row.name,
       oldPhone: null,
       newPhone: row.phone,
+      email: row.email,
     });
   } catch (e) {
     console.warn("ensureCoachUser:", e);
@@ -154,12 +157,14 @@ api.put("/coaches/:id", async (req, res) => {
             return phone;
           })()
         : undefined;
+    const emailUpdate =
+      req.body.email !== undefined ? normalizeEmail(req.body.email) : undefined;
     const row = await prisma.coach.update({
       where: { id: req.params.id },
       data: {
         ...(name != null ? { name, initials: name.split(" ").map((p: string) => p[0]).slice(0, 2).join("").toUpperCase() } : {}),
         ...(phoneUpdate !== undefined ? { phone: phoneUpdate } : {}),
-        ...(req.body.email !== undefined ? { email: req.body.email } : {}),
+        ...(emailUpdate !== undefined ? { email: emailUpdate } : {}),
         ...(req.body.specialty !== undefined ? { specialty: req.body.specialty } : {}),
         ...(req.body.salaryMonthly !== undefined ? { salaryMonthly: Number(req.body.salaryMonthly) || 0 } : {}),
         ...(req.body.status !== undefined
@@ -178,6 +183,7 @@ api.put("/coaches/:id", async (req, res) => {
         name: row.name,
         oldPhone: existing.phone,
         newPhone: row.phone,
+        email: row.email,
       });
     } catch (e) {
       console.warn("ensureCoachUser:", e);
@@ -334,6 +340,7 @@ api.post("/students", async (req, res) => {
   }
   const dob = req.body.dob ? new Date(req.body.dob) : null;
   const rates = feeRatesFromBody(req.body);
+  const parentEmail = normalizeEmail(req.body.parentEmail);
   const row = await prisma.student.create({
     data: {
       name,
@@ -341,6 +348,7 @@ api.post("/students", async (req, res) => {
       age: ageFromDob(dob) ?? (Number(req.body.age) || 12),
       parentName: req.body.parentName || null,
       parentPhone,
+      parentEmail,
       role: req.body.role || null,
       feeStatus: req.body.feeStatus || "paid",
       feeAmount: optionalRupees(req.body.feeAmount) ?? rates.feeRate1,
@@ -366,6 +374,7 @@ api.post("/students", async (req, res) => {
       oldPhone: null,
       newPhone: row.parentPhone,
       parentName: row.parentName,
+      parentEmail: row.parentEmail,
     });
   } catch (e) {
     console.warn("ensureParentUser:", e);
@@ -415,6 +424,8 @@ api.put("/students/:id", async (req, res) => {
       }
       nextParentPhone = phone;
     }
+    const nextParentEmail =
+      req.body.parentEmail !== undefined ? normalizeEmail(req.body.parentEmail) : undefined;
 
     const dob = req.body.dob !== undefined ? (req.body.dob ? new Date(req.body.dob) : null) : undefined;
     const scores = req.body.scores || {};
@@ -426,6 +437,7 @@ api.put("/students/:id", async (req, res) => {
         ...(req.body.age !== undefined ? { age: Number(req.body.age) } : {}),
         ...(req.body.parentName !== undefined ? { parentName: req.body.parentName } : {}),
         ...(nextParentPhone !== undefined ? { parentPhone: nextParentPhone } : {}),
+        ...(nextParentEmail !== undefined ? { parentEmail: nextParentEmail } : {}),
         ...(req.body.role !== undefined ? { role: req.body.role } : {}),
         ...(req.body.feeStatus !== undefined ? { feeStatus: req.body.feeStatus } : {}),
         ...(req.body.feeAmount !== undefined ? { feeAmount: Number(req.body.feeAmount) } : {}),
@@ -468,6 +480,7 @@ api.put("/students/:id", async (req, res) => {
         oldPhone: existing.parentPhone,
         newPhone: row.parentPhone,
         parentName: row.parentName,
+        parentEmail: row.parentEmail,
       });
     } catch (e) {
       console.warn("ensureParentUser:", e);
@@ -895,6 +908,7 @@ api.get("/users", async (_req, res) => {
       phone: u.phone,
       role: u.role,
       name: u.name,
+      email: u.email || "",
       coachId: u.coachId,
       parentPhone: u.parentPhone,
       createdAt: u.createdAt.toISOString(),
@@ -906,6 +920,7 @@ api.post("/users", async (req, res) => {
   const phone = normalizePhone(req.body.phone);
   const role = String(req.body.role || "").trim();
   const name = String(req.body.name || "").trim() || "User";
+  const email = normalizeEmail(req.body.email);
   if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
   if (!["parent", "coach", "admin"].includes(role)) {
     return res.status(400).json({ error: "role must be parent, coach, or admin" });
@@ -936,6 +951,7 @@ api.post("/users", async (req, res) => {
         role,
         name,
         pinHash: await hashPin(pin),
+        email,
         coachId: req.body.coachId || null,
         parentPhone: role === "parent" ? phone : null,
       },
@@ -945,6 +961,7 @@ api.post("/users", async (req, res) => {
       phone: row.phone,
       role: row.role,
       name: row.name,
+      email: row.email || "",
       coachId: row.coachId,
       parentPhone: row.parentPhone,
       createdAt: row.createdAt.toISOString(),
@@ -959,6 +976,7 @@ api.put("/users/:id", async (req, res) => {
     const data: {
       name?: string;
       pinHash?: string;
+      email?: string | null;
       coachId?: string | null;
       parentPhone?: string | null;
       mustChangePin?: boolean;
@@ -970,6 +988,7 @@ api.put("/users/:id", async (req, res) => {
       data.mustChangePin = false;
       data.pinChangedAt = new Date();
     }
+    if (req.body.email !== undefined) data.email = normalizeEmail(req.body.email);
     if (req.body.coachId !== undefined) data.coachId = req.body.coachId || null;
     if (req.body.parentPhone !== undefined) {
       data.parentPhone = normalizePhone(req.body.parentPhone) || null;
@@ -980,6 +999,7 @@ api.put("/users/:id", async (req, res) => {
       phone: row.phone,
       role: row.role,
       name: row.name,
+      email: row.email || "",
       coachId: row.coachId,
       parentPhone: row.parentPhone,
       createdAt: row.createdAt.toISOString(),

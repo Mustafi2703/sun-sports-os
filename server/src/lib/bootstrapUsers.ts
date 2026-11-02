@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
+import { normalizeEmail } from "./email.js";
 
 /**
  * Ensures portal users exist for admin, every coach with a phone,
@@ -35,6 +36,7 @@ export async function bootstrapPortalUsers() {
   }
 
   const adminPhone = normalizePhone(process.env.ADMIN_PHONE || "9000000001");
+  const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
   await prisma.user.upsert({
     where: { phone_role: { phone: adminPhone, role: "admin" } },
     create: {
@@ -42,13 +44,18 @@ export async function bootstrapPortalUsers() {
       pinHash,
       role: "admin",
       name: "Sun Sports Team",
+      ...(adminEmail ? { email: adminEmail } : {}),
     },
-    update: { name: "Sun Sports Team" },
+    update: {
+      name: "Sun Sports Team",
+      ...(adminEmail ? { email: adminEmail } : {}),
+    },
   });
 
   for (const c of await prisma.coach.findMany()) {
     const phone = normalizePhone(c.phone);
     if (!phone || phone.length < 10) continue;
+    const email = normalizeEmail(c.email);
     await prisma.user.upsert({
       where: { phone_role: { phone, role: "coach" } },
       create: {
@@ -57,29 +64,35 @@ export async function bootstrapPortalUsers() {
         role: "coach",
         name: c.name,
         coachId: c.id,
+        ...(email ? { email } : {}),
       },
       update: {
         name: c.name,
         coachId: c.id,
+        ...(email ? { email } : {}),
       },
     });
   }
 
   const students = await prisma.student.findMany({
     where: { parentPhone: { not: null } },
-    select: { parentPhone: true, parentName: true },
+    select: { parentPhone: true, parentName: true, parentEmail: true },
   });
 
-  const byPhone = new Map<string, string>();
+  const byPhone = new Map<string, { name: string; email: string | null }>();
   for (const s of students) {
     const phone = normalizePhone(s.parentPhone);
     if (!phone || phone.length < 10) continue;
-    if (!byPhone.has(phone)) {
-      byPhone.set(phone, s.parentName || "Parent");
+    const email = normalizeEmail(s.parentEmail);
+    const existing = byPhone.get(phone);
+    if (!existing) {
+      byPhone.set(phone, { name: s.parentName || "Parent", email });
+      continue;
     }
+    if (!existing.email && email) existing.email = email;
   }
 
-  for (const [phone, name] of byPhone) {
+  for (const [phone, info] of byPhone) {
     const existing = await prisma.user.findUnique({
       where: { phone_role: { phone, role: "parent" } },
     });
@@ -89,8 +102,9 @@ export async function bootstrapPortalUsers() {
           phone,
           pinHash,
           role: "parent",
-          name,
+          name: info.name,
           parentPhone: phone,
+          ...(info.email ? { email: info.email } : {}),
         },
       });
       continue;
@@ -98,8 +112,9 @@ export async function bootstrapPortalUsers() {
     await prisma.user.update({
       where: { id: existing.id },
       data: {
-        name,
+        name: info.name,
         parentPhone: phone,
+        ...(info.email ? { email: info.email } : {}),
       },
     });
   }

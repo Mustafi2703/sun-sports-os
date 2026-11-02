@@ -16,6 +16,7 @@ type PortalUser = {
   phone: string;
   role: string;
   name: string;
+  email?: string;
   coachId?: string | null;
   parentPhone?: string | null;
   createdAt: string;
@@ -29,8 +30,19 @@ const Settings = () => {
   const [coachForm, setCoachForm] = useState({ name: "", phone: "", specialty: "", email: "" });
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [userOpen, setUserOpen] = useState(false);
-  const [userForm, setUserForm] = useState({ name: "", phone: "", role: "parent" as Portal, pin: "1234" });
-  const [authInfo, setAuthInfo] = useState<{ smsConfigured: boolean; smsProvider: string; pin: boolean } | null>(null);
+  const [userForm, setUserForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    role: "parent" as Portal,
+    pin: "1234",
+  });
+  const [authInfo, setAuthInfo] = useState<{
+    emailConfigured?: boolean;
+    smsConfigured: boolean;
+    smsProvider: string;
+    pin: boolean;
+  } | null>(null);
 
   const loadUsers = async () => {
     try {
@@ -45,7 +57,14 @@ const Settings = () => {
     void loadUsers();
     void api
       .authMethods()
-      .then((m) => setAuthInfo({ smsConfigured: m.smsConfigured, smsProvider: m.smsProvider, pin: m.pin }))
+      .then((m) =>
+        setAuthInfo({
+          emailConfigured: m.emailConfigured,
+          smsConfigured: m.smsConfigured,
+          smsProvider: m.smsProvider,
+          pin: m.pin,
+        })
+      )
       .catch(() => undefined);
   }, [api]);
 
@@ -113,11 +132,12 @@ const Settings = () => {
         phone,
         role: userForm.role,
         name: userForm.name.trim(),
+        email: userForm.email.trim() || undefined,
         pin: userForm.pin || undefined,
       });
       toast.success("Portal user created");
       setUserOpen(false);
-      setUserForm({ name: "", phone: "", role: "parent", pin: "1234" });
+      setUserForm({ name: "", phone: "", email: "", role: "parent", pin: "1234" });
       await loadUsers();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create user");
@@ -156,25 +176,30 @@ const Settings = () => {
 
         <Card title="Portal access">
           <p className="text-sm text-muted-foreground mb-3">
-            Parents, coaches, and the team sign in with a mobile number and PIN. Change PIN is inside each portal.
+            Parents, coaches, and the team sign in with a mobile number and PIN. Forgot PIN uses the email on file.
           </p>
           <ul className="text-sm space-y-2">
             <li>
               <a className="text-primary underline" href="/parent/login" target="_blank" rel="noreferrer">Parent portal</a>
-              <span className="text-muted-foreground"> — parent WhatsApp on student profile</span>
+              <span className="text-muted-foreground"> — parent WhatsApp + email on student profile</span>
             </li>
             <li>
               <a className="text-primary underline" href="/coach/login" target="_blank" rel="noreferrer">Coach portal</a>
-              <span className="text-muted-foreground"> — coach phone in Settings</span>
+              <span className="text-muted-foreground"> — coach phone + email in Settings</span>
             </li>
             <li>
               <a className="text-primary underline" href="/app/login" target="_blank" rel="noreferrer">Internal team</a>
-              <span className="text-muted-foreground"> — admin phone</span>
+              <span className="text-muted-foreground"> — admin phone + email</span>
             </li>
           </ul>
           {authInfo && (
             <p className="text-xs text-muted-foreground mt-3">
               Sign-in: mobile number and PIN
+              {authInfo.emailConfigured === false
+                ? " · Forgot PIN email not configured yet"
+                : authInfo.emailConfigured
+                  ? " · Forgot PIN email ready"
+                  : ""}
             </p>
           )}
         </Card>
@@ -194,6 +219,7 @@ const Settings = () => {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{u.name}</p>
                   <p className="text-xs text-muted-foreground capitalize">{u.role} · {u.phone}</p>
+                  <p className="text-xs text-muted-foreground truncate">{u.email || "No email for PIN reset"}</p>
                 </div>
                 <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={() => void removeUser(u)}>
                   <Trash2 className="h-3.5 w-3.5" />
@@ -285,6 +311,15 @@ const Settings = () => {
             <div className="space-y-1.5"><Label className="text-xs">Name</Label><Input value={userForm.name} onChange={(e) => setUserForm((f) => ({ ...f, name: e.target.value }))} /></div>
             <div className="space-y-1.5"><Label className="text-xs">Phone</Label><Input value={userForm.phone} onChange={(e) => setUserForm((f) => ({ ...f, phone: e.target.value }))} /></div>
             <div className="space-y-1.5">
+              <Label className="text-xs">Email (Forgot PIN)</Label>
+              <Input
+                type="email"
+                value={userForm.email}
+                onChange={(e) => setUserForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="user@email.com"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs">Portal</Label>
               <Select value={userForm.role} onValueChange={(v) => setUserForm((f) => ({ ...f, role: v as Portal }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -297,7 +332,7 @@ const Settings = () => {
             </div>
             <div className="space-y-1.5"><Label className="text-xs">Backup PIN</Label><Input value={userForm.pin} onChange={(e) => setUserForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))} /></div>
             <p className="text-[11px] text-muted-foreground">
-              Parents need a student with this WhatsApp first. Coaches need a coach row with this phone first. Only onboarded numbers can OTP/PIN login.
+              Parents need a student with this WhatsApp first. Coaches need a coach row with this phone first. Email is required for Forgot PIN.
             </p>
           </div>
           <DialogFooter>

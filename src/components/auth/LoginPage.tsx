@@ -180,7 +180,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
     setError("");
     const normalized = normalizePhoneInput(phone);
     if (!/^\d{4,8}$/.test(otp)) {
-      setError("Enter the 6-digit code from SMS");
+      setError("Enter the 6-digit code from email");
       return;
     }
     setSubmitting(true);
@@ -322,7 +322,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 <div>
                   <p className="text-sm font-medium">Reset PIN</p>
                   <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                    We’ll text a code to the mobile number already on your Sun Sports profile. After that, a temporary PIN arrives by SMS.
+                    Enter the mobile number on your Sun Sports profile. We email a reset code to the address on file, then a temporary PIN.
                   </p>
                 </div>
                 <div>
@@ -340,7 +340,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 </div>
                 {step === "code" && (
                   <div>
-                    <label className="text-xs text-muted-foreground mb-1.5 block">SMS code</label>
+                    <label className="text-xs text-muted-foreground mb-1.5 block">Email code</label>
                     <Input
                       className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em]"
                       inputMode="numeric"
@@ -355,7 +355,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 )}
                 {info && <p className="text-sm text-muted-foreground">{info}</p>}
                 {devHint && (
-                  <p className="text-xs text-amber-300">Test only, SMS is off: {devHint}</p>
+                  <p className="text-xs text-amber-300">Test only, email is off: {devHint}</p>
                 )}
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {step !== "done" ? (

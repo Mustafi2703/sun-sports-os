@@ -1,10 +1,16 @@
 import { prisma } from "./prisma.js";
 import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
+import { normalizeEmail } from "./email.js";
 
 /** Create/update a single parent portal user for a phone (PIN set only on create). */
-export async function ensureParentUser(parentPhone: string | null | undefined, parentName?: string | null) {
+export async function ensureParentUser(
+  parentPhone: string | null | undefined,
+  parentName?: string | null,
+  parentEmail?: string | null
+) {
   const phone = normalizePhone(parentPhone);
   if (!phone || phone.length < 10) return null;
+  const email = normalizeEmail(parentEmail);
   const existing = await prisma.user.findUnique({
     where: { phone_role: { phone, role: "parent" } },
   });
@@ -16,6 +22,7 @@ export async function ensureParentUser(parentPhone: string | null | undefined, p
         role: "parent",
         name: parentName || "Parent",
         parentPhone: phone,
+        ...(email ? { email } : {}),
       },
     });
   }
@@ -24,6 +31,7 @@ export async function ensureParentUser(parentPhone: string | null | undefined, p
     data: {
       name: parentName || existing.name || "Parent",
       parentPhone: phone,
+      ...(parentEmail !== undefined ? { email } : {}),
     },
   });
 }
@@ -56,12 +64,13 @@ export async function syncParentAccess(opts: {
   oldPhone?: string | null;
   newPhone?: string | null;
   parentName?: string | null;
+  parentEmail?: string | null;
 }) {
   const neu = normalizePhone(opts.newPhone);
   const old = normalizePhone(opts.oldPhone);
 
   if (neu && neu.length >= 10) {
-    await ensureParentUser(neu, opts.parentName);
+    await ensureParentUser(neu, opts.parentName, opts.parentEmail);
   }
 
   if (old && old.length >= 10 && old !== neu) {
@@ -77,9 +86,11 @@ export async function ensureCoachUser(opts: {
   coachId: string;
   name: string;
   phone?: string | null;
+  email?: string | null;
 }) {
   const phone = normalizePhone(opts.phone);
   if (!phone || phone.length < 10) return null;
+  const email = normalizeEmail(opts.email);
   const pinHash = await hashPin(getDefaultPin());
   return prisma.user.upsert({
     where: { phone_role: { phone, role: "coach" } },
@@ -89,10 +100,12 @@ export async function ensureCoachUser(opts: {
       role: "coach",
       name: opts.name,
       coachId: opts.coachId,
+      ...(email ? { email } : {}),
     },
     update: {
       name: opts.name,
       coachId: opts.coachId,
+      ...(opts.email !== undefined ? { email } : {}),
     },
   });
 }
@@ -103,12 +116,18 @@ export async function syncCoachAccess(opts: {
   name: string;
   oldPhone?: string | null;
   newPhone?: string | null;
+  email?: string | null;
 }) {
   const neu = normalizePhone(opts.newPhone);
   const old = normalizePhone(opts.oldPhone);
 
   if (neu && neu.length >= 10) {
-    await ensureCoachUser({ coachId: opts.coachId, name: opts.name, phone: neu });
+    await ensureCoachUser({
+      coachId: opts.coachId,
+      name: opts.name,
+      phone: neu,
+      email: opts.email,
+    });
   }
 
   if (old && old.length >= 10 && old !== neu) {

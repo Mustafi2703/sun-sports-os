@@ -1,6 +1,11 @@
 import { prisma } from "./prisma.js";
 import { hashPin, verifyPin } from "./auth.js";
 import { sendOtpSms, shouldEchoOtp, smsConfigured, activeSmsProvider } from "./sms.js";
+import {
+  emailConfigured,
+  sendResetCodeEmail,
+  shouldEchoEmailCodes,
+} from "./email.js";
 
 const OTP_TTL_MS = () => Number(process.env.OTP_TTL_SECONDS || 300) * 1000;
 const MAX_ATTEMPTS = 5;
@@ -11,10 +16,12 @@ export function pinAuthAllowed(): boolean {
 
 export function authMethods() {
   return {
-    /** Login is PIN-only. OTP is used for forgotten-PIN recovery. */
+    /** Login is PIN-only. Email OTP is used for forgotten-PIN recovery. */
     otp: false,
     pin: pinAuthAllowed(),
     pinRecovery: true,
+    emailConfigured: emailConfigured(),
+    emailProvider: emailConfigured() ? "resend" : "none",
     smsConfigured: smsConfigured(),
     smsProvider: activeSmsProvider(),
   };
@@ -24,20 +31,23 @@ function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+async function storeOtpChallenge(phone: string, portal: string, code: string) {
+  const codeHash = await hashPin(code);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MS());
+  await prisma.otpChallenge.deleteMany({ where: { phone, portal } });
+  await prisma.otpChallenge.create({
+    data: { phone, portal, codeHash, expiresAt },
+  });
+  return Math.floor(OTP_TTL_MS() / 1000);
+}
+
 export async function createAndSendOtp(
   phone: string,
   portal: string,
   purpose: "login" | "reset" = "login"
 ) {
   const code = generateOtp();
-  const codeHash = await hashPin(code);
-  const expiresAt = new Date(Date.now() + OTP_TTL_MS());
-
-  // Invalidate prior challenges for this phone+portal
-  await prisma.otpChallenge.deleteMany({ where: { phone, portal } });
-  await prisma.otpChallenge.create({
-    data: { phone, portal, codeHash, expiresAt },
-  });
+  const expiresInSeconds = await storeOtpChallenge(phone, portal, code);
 
   const sms = await sendOtpSms(phone, code, purpose);
   const echo = shouldEchoOtp();
@@ -47,11 +57,32 @@ export async function createAndSendOtp(
 
   return {
     ok: true as const,
-    expiresInSeconds: Math.floor(OTP_TTL_MS() / 1000),
+    expiresInSeconds,
     smsDelivered: sms.delivered,
     smsProvider: sms.provider,
     ...(echo ? { devOtp: code } : {}),
     ...(sms.error && !sms.delivered && !echo ? { warning: sms.error } : {}),
+  };
+}
+
+/** Forgot PIN — store challenge and deliver the code by email (Resend). */
+export async function createAndSendResetEmail(phone: string, portal: string, email: string) {
+  const code = generateOtp();
+  const expiresInSeconds = await storeOtpChallenge(phone, portal, code);
+
+  const mail = await sendResetCodeEmail(email, code);
+  const echo = shouldEchoEmailCodes();
+  if (echo) {
+    console.log(`[otp-email] ${portal} ${phone} → ${email} code=${code} (echo=${echo}, mail=${mail.delivered})`);
+  }
+
+  return {
+    ok: true as const,
+    expiresInSeconds,
+    emailDelivered: mail.delivered,
+    emailProvider: mail.provider,
+    ...(echo ? { devOtp: code } : {}),
+    ...(mail.error && !mail.delivered && !echo ? { warning: mail.error } : {}),
   };
 }
 

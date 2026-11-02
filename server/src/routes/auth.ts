@@ -9,9 +9,16 @@ import {
   verifyPin,
   type AuthUser,
 } from "../lib/auth.js";
-import { authMethods, createAndSendOtp, pinAuthAllowed, purgeExpiredOtps, verifyOtpCode } from "../lib/otp.js";
+import {
+  authMethods,
+  createAndSendOtp,
+  createAndSendResetEmail,
+  pinAuthAllowed,
+  purgeExpiredOtps,
+  verifyOtpCode,
+} from "../lib/otp.js";
 import { coachLinkedToPhone, studentLinkedToParentPhone } from "../lib/ensureUser.js";
-import { sendPinSms, shouldEchoOtp } from "../lib/sms.js";
+import { normalizeEmail, sendTempPinEmail, shouldEchoEmailCodes } from "../lib/email.js";
 
 export const authRouter = Router();
 
@@ -222,7 +229,7 @@ authRouter.post("/login", async (req, res) => {
 });
 
 /**
- * Forgotten PIN — step 1. Text a one-time code to an onboarded parent, coach, or admin.
+ * Forgotten PIN — step 1. Email a one-time code to an onboarded parent, coach, or admin.
  * This is not a login method.
  */
 authRouter.post("/forgot-pin/request", async (req, res) => {
@@ -239,19 +246,27 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
       return res.status(403).json({ error: notOnboarded || "This phone is not onboarded for this portal." });
     }
 
-    const result = await createAndSendOtp(phone, resetChallengePortal(portal), "reset");
-    if (!result.smsDelivered && !result.devOtp) {
+    const email = normalizeEmail(user.email);
+    if (!email) {
+      return res.status(400).json({
+        error:
+          "No email is on file for this account. Ask the academy to add your email, then try again.",
+      });
+    }
+
+    const result = await createAndSendResetEmail(phone, resetChallengePortal(portal), email);
+    if (!result.emailDelivered && !result.devOtp) {
       return res.status(503).json({
-        error: "Could not send the reset code. Try again in a moment.",
+        error: "Could not send the reset code by email. Try again in a moment.",
       });
     }
     res.json({
       ok: true,
       expiresInSeconds: result.expiresInSeconds,
-      smsDelivered: result.smsDelivered,
-      message: result.smsDelivered
-        ? "Reset code sent by SMS"
-        : "Reset code generated (SMS not configured — use the on-screen code)",
+      emailDelivered: result.emailDelivered,
+      message: result.emailDelivered
+        ? "Reset code sent by email"
+        : "Reset code generated (email not configured — use the on-screen code)",
       ...(result.devOtp ? { devOtp: result.devOtp } : {}),
     });
   } catch (e) {
@@ -261,7 +276,7 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
 });
 
 /**
- * Forgotten PIN — step 2. After the OTP checks out, issue a new PIN by SMS
+ * Forgotten PIN — step 2. After the OTP checks out, issue a new PIN by email
  * and require a change on the next sign-in.
  */
 authRouter.post("/forgot-pin/confirm", async (req, res) => {
@@ -271,7 +286,7 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
     const portal = portalToRole(String(req.body.portal || ""));
     if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
     if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
-    if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the code from SMS" });
+    if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the code from email" });
 
     const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
     if (wrongPortal) return res.status(403).json({ error: wrongPortal });
@@ -279,15 +294,23 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
       return res.status(403).json({ error: notOnboarded || "This phone is not onboarded for this portal." });
     }
 
+    const email = normalizeEmail(user.email);
+    if (!email) {
+      return res.status(400).json({
+        error:
+          "No email is on file for this account. Ask the academy to add your email, then try again.",
+      });
+    }
+
     const check = await verifyOtpCode(phone, resetChallengePortal(portal), otp);
     if (!check.ok) return res.status(401).json({ error: check.error });
 
     const tempPin = generateTempPin();
-    const echo = shouldEchoOtp();
-    const sms = await sendPinSms(phone, tempPin);
-    if (!sms.delivered && !echo) {
+    const echo = shouldEchoEmailCodes();
+    const mail = await sendTempPinEmail(email, tempPin);
+    if (!mail.delivered && !echo) {
       return res.status(503).json({
-        error: "Could not text the new PIN. Your current PIN is unchanged — try again shortly.",
+        error: "Could not email the new PIN. Your current PIN is unchanged — try again shortly.",
       });
     }
 
@@ -302,11 +325,12 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
 
     res.json({
       ok: true,
-      pinSent: sms.delivered,
-      message: sms.delivered
-        ? "A new PIN was sent by SMS. Sign in with it, then choose your own PIN."
-        : "SMS is not live yet. Sign in with the temporary PIN shown here, then choose your own.",
-      ...(echo && !sms.delivered ? { devPin: tempPin } : {}),
+      pinSent: mail.delivered,
+      emailDelivered: mail.delivered,
+      message: mail.delivered
+        ? "A new PIN was sent by email. Sign in with it, then choose your own PIN."
+        : "Email is not live yet. Sign in with the temporary PIN shown here, then choose your own.",
+      ...(echo && !mail.delivered ? { devPin: tempPin } : {}),
     });
   } catch (e) {
     console.error("forgot-pin confirm error:", e);

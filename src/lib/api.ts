@@ -47,6 +47,7 @@ export interface Student {
   dob?: string;
   parentName: string;
   parentPhone: string;
+  parentEmail?: string;
   batchId: string;
   role?: string;
   feeStatus: FeeStatus;
@@ -251,16 +252,31 @@ export const api = {
       body: JSON.stringify(body),
     }),
   authMethods: () =>
-    request<{ otp: boolean; pin: boolean; pinRecovery?: boolean; smsConfigured: boolean; smsProvider: string }>(
-      "/api/auth/methods"
-    ),
+    request<{
+      otp: boolean;
+      pin: boolean;
+      pinRecovery?: boolean;
+      emailConfigured?: boolean;
+      emailProvider?: string;
+      smsConfigured: boolean;
+      smsProvider: string;
+    }>("/api/auth/methods"),
   forgotPinRequest: (body: { phone: string; portal: Portal }) =>
-    request<{ ok: boolean; message: string; smsDelivered: boolean; devOtp?: string }>("/api/auth/forgot-pin/request", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request<{ ok: boolean; message: string; emailDelivered?: boolean; smsDelivered?: boolean; devOtp?: string }>(
+      "/api/auth/forgot-pin/request",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      }
+    ),
   forgotPinConfirm: (body: { phone: string; portal: Portal; otp: string }) =>
-    request<{ ok: boolean; message: string; pinSent: boolean; devPin?: string }>("/api/auth/forgot-pin/confirm", {
+    request<{
+      ok: boolean;
+      message: string;
+      pinSent: boolean;
+      emailDelivered?: boolean;
+      devPin?: string;
+    }>("/api/auth/forgot-pin/confirm", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -285,12 +301,23 @@ export const api = {
     }),
   listUsers: () =>
     request<
-      { id: string; phone: string; role: string; name: string; coachId?: string | null; parentPhone?: string | null; createdAt: string }[]
+      {
+        id: string;
+        phone: string;
+        role: string;
+        name: string;
+        email?: string;
+        coachId?: string | null;
+        parentPhone?: string | null;
+        createdAt: string;
+      }[]
     >("/api/users"),
-  createUser: (body: { phone: string; role: Portal; name: string; pin?: string; coachId?: string }) =>
+  createUser: (body: { phone: string; role: Portal; name: string; pin?: string; email?: string; coachId?: string }) =>
     request("/api/users", { method: "POST", body: JSON.stringify(body) }),
-  updateUser: (id: string, body: { name?: string; pin?: string; coachId?: string | null; parentPhone?: string | null }) =>
-    request(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  updateUser: (
+    id: string,
+    body: { name?: string; pin?: string; email?: string; coachId?: string | null; parentPhone?: string | null }
+  ) => request(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
   demoAccounts: () =>
     request<{

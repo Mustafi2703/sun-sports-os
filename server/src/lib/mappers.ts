@@ -55,6 +55,7 @@ export function mapStudent(s: Student) {
     dob: s.dob ? s.dob.toISOString().slice(0, 10) : undefined,
     parentName: s.parentName || "",
     parentPhone: s.parentPhone || "",
+    parentEmail: (s as Student & { parentEmail?: string | null }).parentEmail || "",
     batchId: s.batchId || "",
     role: s.role || undefined,
     feeStatus: (s.feeStatus as "paid" | "overdue1" | "overdue8") || "paid",

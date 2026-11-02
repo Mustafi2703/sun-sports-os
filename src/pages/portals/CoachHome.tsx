@@ -344,6 +344,7 @@ export default function CoachHome() {
         dob: values.dob || undefined,
         parentName: values.parentName,
         parentPhone: values.parentPhone,
+        parentEmail: values.parentEmail || undefined,
         batchId: values.batchId || undefined,
         role: values.role,
         feeAmount: monthly,

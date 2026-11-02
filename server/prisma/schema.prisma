@@ -59,6 +59,7 @@ model Student {
   age           Int?
   parentName    String?
   parentPhone   String?
+  parentEmail   String?  /// used for Forgot PIN email delivery
   role          String?
   feeStatus     String   @default("paid") // paid | overdue1 | overdue8
   feeAmount     Int      @default(15000)
@@ -227,6 +228,7 @@ model User {
   pinHash     String
   role        String   /// parent | coach | admin
   name        String
+  email       String?  /// Forgot PIN delivery via Resend
   coachId     String?  /// links coach role to Coach row
   parentPhone String?  /// original parent phone string for student lookup
   /// Parents must pick their own PIN on first login. Set again after OTP PIN recovery.
@@ -239,6 +241,7 @@ model User {
   @@index([role])
   @@index([coachId])
   @@index([phone])
+  @@index([email])
 }
 
 /// Short-lived phone OTP challenges for portal login
