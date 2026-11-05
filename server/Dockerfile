@@ -3,7 +3,11 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# Prefer IPv4 and retry: Railway builds sometimes fail reaching deb.debian.org over IPv6
+RUN printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4 \
+  && apt-get update -y \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
 RUN npm install
