@@ -258,6 +258,7 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
     if (!result.emailDelivered && !result.devOtp) {
       return res.status(503).json({
         error: "Could not send the reset code by email. Try again in a moment.",
+        ...(result.warning ? { detail: result.warning } : {}),
       });
     }
     res.json({
