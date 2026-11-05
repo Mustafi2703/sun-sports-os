@@ -275,6 +275,7 @@ export const api = {
       message: string;
       pinSent: boolean;
       emailDelivered?: boolean;
+      tempPin?: string;
       devPin?: string;
     }>("/api/auth/forgot-pin/confirm", {
       method: "POST",

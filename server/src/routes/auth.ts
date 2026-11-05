@@ -18,7 +18,7 @@ import {
   verifyOtpCode,
 } from "../lib/otp.js";
 import { coachLinkedToPhone, studentLinkedToParentPhone } from "../lib/ensureUser.js";
-import { normalizeEmail, sendTempPinEmail, shouldEchoEmailCodes } from "../lib/email.js";
+import { normalizeEmail } from "../lib/email.js";
 
 export const authRouter = Router();
 
@@ -277,8 +277,8 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
 });
 
 /**
- * Forgotten PIN — step 2. After the OTP checks out, issue a new PIN by email
- * and require a change on the next sign-in.
+ * Forgotten PIN — step 2. After the email code checks out, issue a temporary PIN
+ * on-screen only (no second email). User must change it after sign-in.
  */
 authRouter.post("/forgot-pin/confirm", async (req, res) => {
   try {
@@ -307,14 +307,6 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
     if (!check.ok) return res.status(401).json({ error: check.error });
 
     const tempPin = generateTempPin();
-    const echo = shouldEchoEmailCodes();
-    const mail = await sendTempPinEmail(email, tempPin);
-    if (!mail.delivered && !echo) {
-      return res.status(503).json({
-        error: "Could not email the new PIN. Your current PIN is unchanged — try again shortly.",
-      });
-    }
-
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -326,12 +318,10 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
 
     res.json({
       ok: true,
-      pinSent: mail.delivered,
-      emailDelivered: mail.delivered,
-      message: mail.delivered
-        ? "A new PIN was sent by email. Sign in with it, then choose your own PIN."
-        : "Email is not live yet. Sign in with the temporary PIN shown here, then choose your own.",
-      ...(echo && !mail.delivered ? { devPin: tempPin } : {}),
+      pinSent: false,
+      emailDelivered: false,
+      tempPin,
+      message: "Code confirmed. Sign in with the temporary PIN shown here, then choose your own PIN.",
     });
   } catch (e) {
     console.error("forgot-pin confirm error:", e);

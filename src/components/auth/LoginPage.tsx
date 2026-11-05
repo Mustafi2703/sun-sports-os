@@ -187,7 +187,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
     try {
       const res = await api.forgotPinConfirm({ phone: normalized, portal, otp });
       setInfo(res.message);
-      setDevHint(res.devPin || "");
+      setDevHint(res.tempPin || res.devPin || "");
       setOtp("");
       setPin("");
       setStep("done");
@@ -322,7 +322,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 <div>
                   <p className="text-sm font-medium">Reset PIN</p>
                   <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                    Enter the mobile number on your Sun Sports profile. We email a reset code to the address on file, then a temporary PIN.
+                    Enter the mobile number on your Sun Sports profile. We email a reset code to the address on file.
                   </p>
                 </div>
                 <div>
@@ -354,7 +354,13 @@ export function LoginPage({ portal }: { portal: Portal }) {
                   </div>
                 )}
                 {info && <p className="text-sm text-muted-foreground">{info}</p>}
-                {devHint && (
+                {step === "done" && devHint && (
+                  <p className="rounded-xl border border-border bg-background/50 px-3 py-3 text-center">
+                    <span className="block text-xs text-muted-foreground mb-1">Temporary PIN</span>
+                    <span className="font-mono text-2xl tracking-[0.25em] font-semibold">{devHint}</span>
+                  </p>
+                )}
+                {step !== "done" && devHint && (
                   <p className="text-xs text-amber-300">Test only, email is off: {devHint}</p>
                 )}
                 {error && <p className="text-sm text-destructive">{error}</p>}
@@ -372,7 +378,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
                     className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
                     onClick={backToLogin}
                   >
-                    Sign in with the new PIN
+                    Sign in with the temporary PIN
                   </Button>
                 )}
                 <button type="button" className="w-full text-xs text-muted-foreground hover:text-foreground" onClick={backToLogin}>
