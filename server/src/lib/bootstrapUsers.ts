@@ -119,12 +119,6 @@ export async function bootstrapPortalUsers() {
     });
   }
 
-  // PINs are already issued. Sign-in opens the portal; PIN changes happen inside it.
-  await prisma.user.updateMany({
-    where: { mustChangePin: true },
-    data: { mustChangePin: false },
-  });
-
   const counts = await prisma.user.groupBy({ by: ["role"], _count: true });
   console.log(
     "Portal users ready:",

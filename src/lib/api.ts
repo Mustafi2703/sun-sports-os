@@ -262,22 +262,13 @@ export const api = {
       smsProvider: string;
     }>("/api/auth/methods"),
   forgotPinRequest: (body: { phone: string; portal: Portal }) =>
-    request<{ ok: boolean; message: string; emailDelivered?: boolean; smsDelivered?: boolean; devOtp?: string }>(
-      "/api/auth/forgot-pin/request",
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      }
-    ),
-  forgotPinConfirm: (body: { phone: string; portal: Portal; otp: string }) =>
     request<{
       ok: boolean;
       message: string;
-      pinSent: boolean;
       emailDelivered?: boolean;
-      tempPin?: string;
+      emailHint?: string;
       devPin?: string;
-    }>("/api/auth/forgot-pin/confirm", {
+    }>("/api/auth/forgot-pin/request", {
       method: "POST",
       body: JSON.stringify(body),
     }),

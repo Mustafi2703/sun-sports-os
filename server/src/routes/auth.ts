@@ -12,13 +12,18 @@ import {
 import {
   authMethods,
   createAndSendOtp,
-  createAndSendResetEmail,
   pinAuthAllowed,
   purgeExpiredOtps,
   verifyOtpCode,
 } from "../lib/otp.js";
 import { coachLinkedToPhone, studentLinkedToParentPhone } from "../lib/ensureUser.js";
-import { normalizeEmail } from "../lib/email.js";
+import {
+  maskEmail,
+  normalizeEmail,
+  sendTempPinEmail,
+  shouldApplyTempPin,
+  shouldEchoEmailCodes,
+} from "../lib/email.js";
 
 export const authRouter = Router();
 
@@ -55,10 +60,6 @@ function loginResponse(user: ReturnType<typeof toAuthUser>) {
       mustChangePin: Boolean(user.mustChangePin),
     },
   };
-}
-
-function resetChallengePortal(portal: string) {
-  return `${portal}:reset`;
 }
 
 function generateTempPin(): string {
@@ -229,12 +230,12 @@ authRouter.post("/login", async (req, res) => {
 });
 
 /**
- * Forgotten PIN — step 1. Email a one-time code to an onboarded parent, coach, or admin.
- * This is not a login method.
+ * Forgotten PIN. Email one temporary PIN. It replaces the old PIN.
+ * Sign-in with it opens the choose-a-new-PIN screen. The old PIN is left
+ * alone when the email does not send.
  */
 authRouter.post("/forgot-pin/request", async (req, res) => {
   try {
-    await purgeExpiredOtps().catch(() => undefined);
     const phone = normalizePhone(req.body.phone);
     const portal = portalToRole(String(req.body.portal || ""));
     if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
@@ -253,60 +254,20 @@ authRouter.post("/forgot-pin/request", async (req, res) => {
           "No email is on file for this account. Ask the academy to add your email, then try again.",
       });
     }
-
-    const result = await createAndSendResetEmail(phone, resetChallengePortal(portal), email);
-    if (!result.emailDelivered && !result.devOtp) {
-      return res.status(503).json({
-        error: "Could not send the reset code by email. Try again in a moment.",
-        ...(result.warning ? { detail: result.warning } : {}),
-      });
-    }
-    res.json({
-      ok: true,
-      expiresInSeconds: result.expiresInSeconds,
-      emailDelivered: result.emailDelivered,
-      message: result.emailDelivered
-        ? "Reset code sent by email"
-        : "Reset code generated (email not configured — use the on-screen code)",
-      ...(result.devOtp ? { devOtp: result.devOtp } : {}),
-    });
-  } catch (e) {
-    console.error("forgot-pin request error:", e);
-    res.status(500).json({ error: "Could not send reset code — try again" });
-  }
-});
-
-/**
- * Forgotten PIN — step 2. After the email code checks out, issue a temporary PIN
- * on-screen only (no second email). User must change it after sign-in.
- */
-authRouter.post("/forgot-pin/confirm", async (req, res) => {
-  try {
-    const phone = normalizePhone(req.body.phone);
-    const otp = String(req.body.otp || req.body.code || "").trim();
-    const portal = portalToRole(String(req.body.portal || ""));
-    if (!phone || phone.length < 10) return res.status(400).json({ error: "Valid 10-digit phone required" });
-    if (!portal) return res.status(400).json({ error: "portal must be parent, coach, or admin" });
-    if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: "Enter the code from email" });
-
-    const { user, wrongPortal, notOnboarded } = await findPortalUser(phone, portal);
-    if (wrongPortal) return res.status(403).json({ error: wrongPortal });
-    if (notOnboarded || !user) {
-      return res.status(403).json({ error: notOnboarded || "This phone is not onboarded for this portal." });
-    }
-
-    const email = normalizeEmail(user.email);
-    if (!email) {
-      return res.status(400).json({
-        error:
-          "No email is on file for this account. Ask the academy to add your email, then try again.",
-      });
-    }
-
-    const check = await verifyOtpCode(phone, resetChallengePortal(portal), otp);
-    if (!check.ok) return res.status(401).json({ error: check.error });
 
     const tempPin = generateTempPin();
+    const echo = shouldEchoEmailCodes();
+    const mail = await sendTempPinEmail(email, tempPin);
+    if (echo) {
+      console.log(`[pin-email] ${portal} ${phone} → ${email} (echo=${echo}, mail=${mail.delivered})`);
+    }
+    if (!shouldApplyTempPin(mail.delivered, echo)) {
+      return res.status(503).json({
+        error: "Could not email the temporary PIN. Your current PIN is unchanged.",
+        ...(mail.error ? { detail: mail.error } : {}),
+      });
+    }
+
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -318,14 +279,16 @@ authRouter.post("/forgot-pin/confirm", async (req, res) => {
 
     res.json({
       ok: true,
-      pinSent: false,
-      emailDelivered: false,
-      tempPin,
-      message: "Code confirmed. Sign in with the temporary PIN shown here, then choose your own PIN.",
+      emailDelivered: mail.delivered,
+      emailHint: maskEmail(email),
+      message: mail.delivered
+        ? "Temporary PIN sent. Sign in with it, then set a new PIN."
+        : "Temporary PIN generated (email not configured). Sign in with the PIN shown here, then set a new PIN.",
+      ...(echo ? { devPin: tempPin } : {}),
     });
   } catch (e) {
-    console.error("forgot-pin confirm error:", e);
-    res.status(500).json({ error: "Could not reset PIN — try again" });
+    console.error("forgot-pin request error:", e);
+    res.status(500).json({ error: "Could not send a temporary PIN. Try again" });
   }
 });
 

@@ -109,7 +109,7 @@ function normalizePhoneInput(raw: string): string {
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
-type ResetStep = "login" | "phone" | "code" | "done";
+type ResetStep = "login" | "phone" | "sent";
 
 export function LoginPage({ portal }: { portal: Portal }) {
   const { login, user, loading } = useAuth();
@@ -117,9 +117,9 @@ export function LoginPage({ portal }: { portal: Portal }) {
   const theme = THEMES[portal];
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
-  const [otp, setOtp] = useState("");
   const [step, setStep] = useState<ResetStep>("login");
   const [info, setInfo] = useState("");
+  const [emailHint, setEmailHint] = useState("");
   const [devHint, setDevHint] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -155,6 +155,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
     e.preventDefault();
     setError("");
     setInfo("");
+    setEmailHint("");
     setDevHint("");
     const normalized = normalizePhoneInput(phone);
     if (normalized.length < 10) {
@@ -166,33 +167,12 @@ export function LoginPage({ portal }: { portal: Portal }) {
       const res = await api.forgotPinRequest({ phone: normalized, portal });
       setPhone(normalized);
       setInfo(res.message);
-      setDevHint(res.devOtp || "");
-      setStep("code");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the reset code");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const confirmReset = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    const normalized = normalizePhoneInput(phone);
-    if (!/^\d{4,8}$/.test(otp)) {
-      setError("Enter the 6-digit code from email");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await api.forgotPinConfirm({ phone: normalized, portal, otp });
-      setInfo(res.message);
-      setDevHint(res.tempPin || res.devPin || "");
-      setOtp("");
+      setEmailHint(res.emailHint || "");
+      setDevHint(res.devPin || "");
       setPin("");
-      setStep("done");
+      setStep("sent");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not reset PIN");
+      setError(err instanceof Error ? err.message : "Could not email a temporary PIN");
     } finally {
       setSubmitting(false);
     }
@@ -202,8 +182,8 @@ export function LoginPage({ portal }: { portal: Portal }) {
     setStep("login");
     setError("");
     setInfo("");
+    setEmailHint("");
     setDevHint("");
-    setOtp("");
   };
 
   return (
@@ -313,17 +293,26 @@ export function LoginPage({ portal }: { portal: Portal }) {
             ) : (
               <form
                 onSubmit={(e) => {
-                  if (step === "code") void confirmReset(e);
-                  else if (step === "phone") void requestReset(e);
+                  if (step === "phone") void requestReset(e);
                   else e.preventDefault();
                 }}
                 className="space-y-3.5 sm:space-y-4"
               >
                 <div>
                   <p className="text-sm font-medium">Reset PIN</p>
-                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                    Enter the mobile number on your Sun Sports profile. We email a reset code to the address on file.
-                  </p>
+                  {step === "phone" ? (
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                      Enter your mobile number. We will send a temporary PIN to your{" "}
+                      <span className="rounded-md bg-primary/15 px-1.5 py-0.5 font-medium text-foreground">
+                        registered email
+                      </span>
+                      . Use that PIN to log in, then set a new PIN.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                      We sent a temporary PIN to your registered email. Sign in with it, then set a new PIN.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground mb-1.5 block">Mobile number</label>
@@ -338,39 +327,29 @@ export function LoginPage({ portal }: { portal: Portal }) {
                     required
                   />
                 </div>
-                {step === "code" && (
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1.5 block">Email code</label>
-                    <Input
-                      className="h-12 text-base bg-background/50 border-border/80 tracking-[0.3em]"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      placeholder="6-digit code"
-                      maxLength={8}
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                      required
-                    />
-                  </div>
+                {emailHint && (
+                  <p className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-3 text-center">
+                    <span className="block text-xs text-muted-foreground mb-1">Registered email</span>
+                    <span className="font-mono text-sm font-semibold break-all">{emailHint}</span>
+                  </p>
                 )}
-                {info && <p className="text-sm text-muted-foreground">{info}</p>}
-                {step === "done" && devHint && (
+                {info && step === "sent" && !emailHint && (
+                  <p className="text-sm text-muted-foreground">{info}</p>
+                )}
+                {devHint && (
                   <p className="rounded-xl border border-border bg-background/50 px-3 py-3 text-center">
-                    <span className="block text-xs text-muted-foreground mb-1">Temporary PIN</span>
+                    <span className="block text-xs text-muted-foreground mb-1">Temporary PIN (email is off)</span>
                     <span className="font-mono text-2xl tracking-[0.25em] font-semibold">{devHint}</span>
                   </p>
                 )}
-                {step !== "done" && devHint && (
-                  <p className="text-xs text-amber-300">Test only, email is off: {devHint}</p>
-                )}
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                {step !== "done" ? (
+                {step === "phone" ? (
                   <Button
                     type="submit"
                     className="w-full h-12 text-base bg-primary text-primary-foreground shadow-glow"
                     disabled={submitting}
                   >
-                    {submitting ? "Please wait…" : step === "phone" ? "Send reset code" : "Confirm code"}
+                    {submitting ? "Please wait…" : "Send temporary PIN"}
                   </Button>
                 ) : (
                   <Button
@@ -381,9 +360,11 @@ export function LoginPage({ portal }: { portal: Portal }) {
                     Sign in with the temporary PIN
                   </Button>
                 )}
-                <button type="button" className="w-full text-xs text-muted-foreground hover:text-foreground" onClick={backToLogin}>
-                  Back to sign in
-                </button>
+                {step === "phone" && (
+                  <button type="button" className="w-full text-xs text-muted-foreground hover:text-foreground" onClick={backToLogin}>
+                    Back to sign in
+                  </button>
+                )}
               </form>
             )}
 

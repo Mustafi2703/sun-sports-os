@@ -1,11 +1,7 @@
 import { prisma } from "./prisma.js";
 import { hashPin, verifyPin } from "./auth.js";
 import { sendOtpSms, shouldEchoOtp, smsConfigured, activeSmsProvider } from "./sms.js";
-import {
-  emailConfigured,
-  sendResetCodeEmail,
-  shouldEchoEmailCodes,
-} from "./email.js";
+import { emailConfigured } from "./email.js";
 
 const OTP_TTL_MS = () => Number(process.env.OTP_TTL_SECONDS || 300) * 1000;
 const MAX_ATTEMPTS = 5;
@@ -16,7 +12,7 @@ export function pinAuthAllowed(): boolean {
 
 export function authMethods() {
   return {
-    /** Login is PIN-only. Email OTP is used for forgotten-PIN recovery. */
+    /** Login is PIN-only. Forgot PIN emails one temporary PIN. */
     otp: false,
     pin: pinAuthAllowed(),
     pinRecovery: true,
@@ -62,27 +58,6 @@ export async function createAndSendOtp(
     smsProvider: sms.provider,
     ...(echo ? { devOtp: code } : {}),
     ...(sms.error && !sms.delivered && !echo ? { warning: sms.error } : {}),
-  };
-}
-
-/** Forgot PIN — store challenge and deliver the code by email (Resend). */
-export async function createAndSendResetEmail(phone: string, portal: string, email: string) {
-  const code = generateOtp();
-  const expiresInSeconds = await storeOtpChallenge(phone, portal, code);
-
-  const mail = await sendResetCodeEmail(email, code);
-  const echo = shouldEchoEmailCodes();
-  if (echo) {
-    console.log(`[otp-email] ${portal} ${phone} → ${email} code=${code} (echo=${echo}, mail=${mail.delivered})`);
-  }
-
-  return {
-    ok: true as const,
-    expiresInSeconds,
-    emailDelivered: mail.delivered,
-    emailProvider: mail.provider,
-    ...(echo ? { devOtp: code } : {}),
-    ...(mail.error && !mail.delivered && !echo ? { warning: mail.error } : {}),
   };
 }
 
