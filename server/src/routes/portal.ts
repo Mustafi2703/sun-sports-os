@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
 import { attendanceByBatchWeeks, attendanceGrid, recomputeAttendancePctMany } from "../lib/attendance.js";
-import { normalizePhone, requireAuth } from "../lib/auth.js";
+import { hashPin, normalizePhone, requireAuth } from "../lib/auth.js";
 
 export const portalRouter = Router();
 
@@ -700,6 +700,51 @@ portalRouter.delete("/coach/students/:id", requireAuth("coach"), async (req, res
   } catch {
     res.status(404).json({ error: "Student not found" });
   }
+});
+
+/** Head coach — set parent portal PIN for a student's parent WhatsApp */
+portalRouter.post("/coach/students/:id/reset-parent-pin", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can reset parent PINs" });
+  }
+
+  const pin = String(req.body.pin || "").replace(/\D/g, "");
+  if (!/^\d{4,8}$/.test(pin)) {
+    return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+  }
+
+  const id = String(req.params.id);
+  const student = await prisma.student.findUnique({ where: { id } });
+  if (!student) return res.status(404).json({ error: "Student not found" });
+
+  const phone = normalizePhone(student.parentPhone);
+  if (!phone || phone.length < 10) {
+    return res.status(400).json({ error: "This student has no parent WhatsApp on file" });
+  }
+
+  const { ensureParentUser } = await import("../lib/ensureUser.js");
+  const parent = await ensureParentUser(phone, student.parentName, student.parentEmail);
+  if (!parent) {
+    return res.status(400).json({ error: "Could not find or create the parent portal login" });
+  }
+
+  await prisma.user.update({
+    where: { id: parent.id },
+    data: {
+      pinHash: await hashPin(pin),
+      mustChangePin: true,
+      pinChangedAt: null,
+    },
+  });
+
+  res.json({
+    ok: true,
+    parentPhone: phone,
+    parentName: parent.name,
+    mustChangePin: true,
+    message: "Parent PIN updated. They must choose a new PIN after signing in.",
+  });
 });
 
 portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, res) => {

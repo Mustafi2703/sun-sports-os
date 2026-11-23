@@ -984,6 +984,7 @@ export default function CoachHome() {
         batches={batches}
         notes={notes}
         showFees={isHeadCoach}
+        canResetParentPin={isHeadCoach}
         onClose={() => setDetailId(null)}
       />
 
@@ -1036,21 +1037,57 @@ function AlertCard({
   );
 }
 
+function generateParentPin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 function PlayerDetail({
   student,
   batches,
   notes,
   showFees,
+  canResetParentPin,
   onClose,
 }: {
   student: Student | null;
   batches: { id: string; name: string }[];
   notes: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
   showFees: boolean;
+  canResetParentPin?: boolean;
   onClose: () => void;
 }) {
   const batch = batches.find((b) => b.id === student?.batchId);
   const playerNotes = notes.filter((n) => n.studentId === student?.id).slice(0, 6);
+  const [pin, setPin] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState("");
+
+  useEffect(() => {
+    setPin("");
+    setPinError("");
+    setPinBusy(false);
+  }, [student?.id]);
+
+  const resetParentPin = async () => {
+    if (!student) return;
+    const next = pin.replace(/\D/g, "");
+    if (!/^\d{4,8}$/.test(next)) {
+      setPinError("PIN must be 4 to 8 digits");
+      return;
+    }
+    setPinBusy(true);
+    setPinError("");
+    try {
+      const res = await api.coachResetParentPin(student.id, next);
+      toast.success(res.message);
+      setPin("");
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : "Could not reset parent PIN");
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
   return (
     <Dialog open={!!student} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[85dvh] overflow-y-auto">
@@ -1086,6 +1123,51 @@ function PlayerDetail({
                   <p className="font-medium">
                     {inr(student.feeAmount)} / month · {student.feeStatus === "paid" ? "Paid" : "Due"}
                   </p>
+                </div>
+              )}
+              {canResetParentPin && (
+                <div className="rounded-lg border border-border px-3 py-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Reset parent PIN</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Sets the parent portal PIN for {student.parentPhone || "this WhatsApp"}. They must choose a new PIN after signing in.
+                  </p>
+                  {!student.parentPhone ? (
+                    <p className="text-xs text-destructive">Add a parent WhatsApp on the student first.</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <Input
+                          className="h-10 font-mono tracking-widest"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          placeholder="4–8 digits"
+                          maxLength={8}
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 shrink-0"
+                          onClick={() => {
+                            setPin(generateParentPin());
+                            setPinError("");
+                          }}
+                        >
+                          Generate
+                        </Button>
+                      </div>
+                      {pinError && <p className="text-xs text-destructive">{pinError}</p>}
+                      <Button
+                        type="button"
+                        className="w-full h-10 bg-primary text-primary-foreground"
+                        disabled={pinBusy || !pin}
+                        onClick={() => void resetParentPin()}
+                      >
+                        {pinBusy ? "Saving…" : "Reset parent PIN"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
               {student.medicalNotes ? (

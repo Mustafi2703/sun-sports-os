@@ -378,6 +378,17 @@ export const api = {
     request<Student>(`/api/portal/coach/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   coachDeleteStudent: (id: string) =>
     request<{ ok: boolean }>(`/api/portal/coach/students/${id}`, { method: "DELETE" }),
+  coachResetParentPin: (studentId: string, pin: string) =>
+    request<{
+      ok: boolean;
+      parentPhone: string;
+      parentName: string;
+      mustChangePin: boolean;
+      message: string;
+    }>(`/api/portal/coach/students/${studentId}/reset-parent-pin`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
   coachEnrollFeePackage: (body: {
     studentId: string;
     packageId?: string;
