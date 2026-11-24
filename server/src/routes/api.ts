@@ -4,10 +4,13 @@ import { ageFromDob, mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
 import {
   attendanceByBatchWeeks,
   attendanceGrid,
+  AttendanceWriteError,
+  liveAttendancePctByStudent,
   monthlyRevenueFromPayments,
+  parseSessionDate,
   recentActivityFeed,
-  recomputeAttendancePctMany,
   todayAttendanceStats,
+  writeAttendanceMarks,
 } from "../lib/attendance.js";
 import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
 import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
@@ -50,7 +53,12 @@ api.get("/snapshot", async (_req, res) => {
       attendanceByBatchWeeks(),
     ]);
 
-  const mappedStudents = students.map(mapStudent);
+  const pctByStudent = await liveAttendancePctByStudent(students.map((s) => s.id));
+  const mappedStudents = students.map((s) => {
+    const mapped = mapStudent(s);
+    const live = pctByStudent.get(s.id);
+    return live == null ? mapped : { ...mapped, attendancePct: live };
+  });
   const paid = mappedStudents.filter((s) => s.feeStatus === "paid");
   const overdue1 = mappedStudents.filter((s) => s.feeStatus === "overdue1");
   const overdue8 = mappedStudents.filter((s) => s.feeStatus === "overdue8");
@@ -652,36 +660,16 @@ api.get("/attendance/analytics", async (_req, res) => {
 });
 
 api.post("/attendance/bulk", async (req, res) => {
-  const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
-  date.setHours(0, 0, 0, 0);
-  const batchId = req.body.batchId || null;
-  const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
-  if (!marks.length) return res.status(400).json({ error: "marks required" });
-  const allowed = new Set(["present", "absent", "late", "leave", "no_session"]);
-
-  const results = await Promise.all(
-    marks.map((m) => {
-      const status = allowed.has(m.status) ? m.status : "present";
-      const note = m.note != null ? String(m.note).trim() || null : undefined;
-      return prisma.attendanceRecord.upsert({
-        where: { studentId_date: { studentId: m.studentId, date } },
-        create: {
-          studentId: m.studentId,
-          batchId,
-          date,
-          status,
-          note: note ?? null,
-        },
-        update: {
-          status,
-          batchId,
-          ...(note !== undefined ? { note } : {}),
-        },
-      });
-    })
-  );
-  await recomputeAttendancePctMany(marks.map((m) => m.studentId));
-  res.json({ ok: true, count: results.length });
+  try {
+    const { date, iso } = parseSessionDate(req.body.date);
+    const batchId = req.body.batchId || null;
+    const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
+    const result = await writeAttendanceMarks({ date, iso, batchId, marks });
+    res.json(result);
+  } catch (e) {
+    if (e instanceof AttendanceWriteError) return res.status(e.status).json({ error: e.message });
+    res.status(400).json({ error: "Could not save attendance" });
+  }
 });
 
 // ─── Academy closures / holidays ────────────────────────────────────

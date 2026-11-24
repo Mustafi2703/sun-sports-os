@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAcademy } from "@/context/AcademyContext";
+import { isWeekend } from "@/lib/academyDays";
 import { cn } from "@/lib/utils";
 
 const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--warning))", "hsl(var(--destructive))"];
@@ -17,7 +18,10 @@ const Dashboard = () => {
     todaysSessions, getBatch, getCoach, recentActivity, inr, batches, academyName,
     todayAttendance, students,
   } = useAcademy();
-  const todayExpected = todaysSessions.reduce((a, s) => a + (getBatch(s.batchId)?.studentCount ?? 0), 0);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const weekendOff = Boolean(todayAttendance.offDay) || isWeekend(todayIso);
+  const sessionsToday = weekendOff ? [] : todaysSessions;
+  const todayExpected = sessionsToday.reduce((a, s) => a + (getBatch(s.batchId)?.studentCount ?? 0), 0);
   const present = todayAttendance.present;
   const marked = todayAttendance.marked;
   const atRisk = students.filter((s) => s.attendancePct > 0 && s.attendancePct < 70).length;
@@ -42,10 +46,10 @@ const Dashboard = () => {
         <StatCard label="Overdue Fees" value={inr(overdueAmount)} icon={<AlertTriangle className="h-4 w-4" />} hint={`${overdueCount} students`} tone="danger" />
         <StatCard
           label="Today's Attendance"
-          value={marked ? `${present}/${marked}` : `0/${todayExpected}`}
+          value={weekendOff ? "Off" : marked ? `${present}/${marked}` : `0/${todayExpected}`}
           icon={<CalendarCheck className="h-4 w-4" />}
-          hint={marked ? `${Math.round((present / marked) * 100)}% of marked` : "Not marked yet"}
-          tone={marked ? "success" : undefined}
+          hint={weekendOff ? "No sessions on Saturday or Sunday" : marked ? `${Math.round((present / marked) * 100)}% of marked` : "Not marked yet"}
+          tone={weekendOff ? undefined : marked ? "success" : undefined}
         />
       </div>
 
@@ -132,10 +136,12 @@ const Dashboard = () => {
             </Link>
           </div>
           <div className="divide-y divide-border">
-            {todaysSessions.length === 0 ? (
-              <p className="px-5 py-6 text-sm text-muted-foreground">No batches configured.</p>
+            {sessionsToday.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-muted-foreground">
+                {weekendOff ? "No sessions on Saturday or Sunday." : "No batches configured."}
+              </p>
             ) : (
-              todaysSessions.map((s) => {
+              sessionsToday.map((s) => {
                 const b = getBatch(s.batchId);
                 const c = b ? getCoach(b.coachId) : undefined;
                 if (!b) return null;

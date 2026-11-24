@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AttendanceDayGrid } from "@/components/app/AttendanceCalendar";
 import { useAcademy } from "@/context/AcademyContext";
 import type { AttendanceGridDay, FeePayment } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -105,21 +106,7 @@ const ParentPortal = () => {
                 <Calendar className="h-4 w-4 text-primary" />
                 Last 30 days — {student.attendancePct > 0 ? `${student.attendancePct}%` : "no marks yet"}
               </p>
-              <div className="grid grid-cols-10 gap-1">
-                {grid.map((m) => (
-                  <div
-                    key={m.date}
-                    title={`${m.date}: ${m.status}`}
-                    className={cn(
-                      "aspect-square rounded-sm",
-                      m.status === "present" && "bg-primary/80",
-                      m.status === "late" && "bg-amber-500/80",
-                      m.status === "absent" && "bg-destructive/80",
-                      m.status === "none" && "bg-muted/40",
-                    )}
-                  />
-                ))}
-              </div>
+              <AttendanceDayGrid days={grid} />
             </div>
 
             <div>

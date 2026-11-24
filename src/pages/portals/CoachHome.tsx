@@ -8,6 +8,7 @@ import {
   type FeePackageOption,
   type StudentFormValues,
 } from "@/components/app/StudentFormDialog";
+import { AttendanceStatusPicker, WeekendOffNotice } from "@/components/app/AttendanceStatusPicker";
 import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
 import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { PortalShell } from "@/components/portals/PortalShell";
@@ -29,17 +30,10 @@ import {
   type FeePayment,
   type Student,
 } from "@/lib/api";
+import { isHistoricalStatus, isMarkableStatus, isWeekend, weekdayName } from "@/lib/academyDays";
 import { cn, parseRupees } from "@/lib/utils";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
-
-const MARKS: { value: AttendanceMark; label: string; title: string }[] = [
-  { value: "present", label: "P", title: "Present" },
-  { value: "late", label: "L", title: "Late" },
-  { value: "absent", label: "A", title: "Absent" },
-  { value: "leave", label: "Lv", title: "Leave (parent informed)" },
-  { value: "no_session", label: "NS", title: "No session" },
-];
 
 export default function CoachHome() {
   const [data, setData] = useState<CoachPortalData | null>(null);
@@ -229,18 +223,20 @@ export default function CoachHome() {
     }
   };
 
+  const weekend = isWeekend(date);
+
   const saveAttendance = async () => {
+    if (weekend) {
+      toast.error("No session on Saturday or Sunday.");
+      return;
+    }
     const payload = batchStudents
       .map((s) => ({
         studentId: s.id,
         status: marks[s.id],
         note: notesByStudent[s.id] || undefined,
       }))
-      .filter((m) => !!m.status && m.status !== "none") as {
-        studentId: string;
-        status: AttendanceMark;
-        note?: string;
-      }[];
+      .filter((m) => isMarkableStatus(m.status));
     if (!payload.length) {
       toast.error("Mark at least one student");
       return;
@@ -248,7 +244,7 @@ export default function CoachHome() {
     setSaving(true);
     try {
       await api.coachSaveAttendance({ date, batchId: activeBatch, marks: payload });
-      toast.success(`Saved ${payload.length} marks — you can edit anytime`);
+      toast.success(`Saved ${payload.length} marks. Earlier leave and late marks stay as they are.`);
       const res = await api.coachListAttendance({ date, batchId: activeBatch });
       const next: Record<string, AttendanceMark> = {};
       const notes: Record<string, string> = {};
@@ -661,11 +657,11 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Attendance"
-                description="Any coach can mark any batch. Load a past date to edit logged marks."
+                description="Saturday and Sunday are off for every batch. On other days, mark present, absent, or no session."
                 actions={
                   <Button
                     className="bg-primary text-primary-foreground"
-                    disabled={saving || !batchStudents.length}
+                    disabled={saving || weekend || !batchStudents.length}
                     onClick={() => void saveAttendance()}
                   >
                     {saving ? "Saving…" : "Save attendance"}
@@ -695,18 +691,25 @@ export default function CoachHome() {
                 </div>
               </div>
 
-              {dayClosure && (
+              {weekend ? (
+                <WeekendOffNotice
+                  date={date}
+                  weekday={weekdayName(date)}
+                  closureTitle={dayClosure?.title}
+                  closureReason={dayClosure?.reason}
+                />
+              ) : dayClosure ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-                  <p className="font-medium">No session — {dayClosure.title}</p>
+                  <p className="font-medium">No session: {dayClosure.title}</p>
                   {dayClosure.reason ? <p className="text-xs text-muted-foreground mt-0.5">{dayClosure.reason}</p> : null}
                 </div>
-              )}
+              ) : null}
 
               <div className="rounded-2xl border border-border bg-card overflow-hidden">
                 <div className="p-5 border-b border-border">
-                  <h3 className="font-display font-semibold">Roster — edit logged marks anytime</h3>
+                  <h3 className="font-display font-semibold">Roster</h3>
                   <p className="text-xs text-muted-foreground">
-                    {batchStudents.length} students · P Present · L Late · A Absent · Lv Leave · NS No session
+                    {batchStudents.length} students. P Present, A Absent, NS No session. Saved leave and late marks stay as they are.
                   </p>
                 </div>
                 <div className="divide-y divide-border">
@@ -725,35 +728,30 @@ export default function CoachHome() {
                               <p className="text-xs text-muted-foreground truncate">{s.role || "Player"}</p>
                             </div>
                           </div>
-                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
-                            {MARKS.map((m) => (
-                              <button
-                                key={m.value}
-                                type="button"
-                                title={m.title}
-                                onClick={() => setMarks((prev) => ({ ...prev, [s.id]: m.value }))}
-                                className={cn(
-                                  "h-9 min-w-9 px-1.5 rounded-lg text-[11px] font-semibold border",
-                                  marks[s.id] === m.value
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "border-border text-muted-foreground hover:bg-muted/30"
-                                )}
-                              >
-                                {m.label}
-                              </button>
-                            ))}
-                          </div>
+                          <AttendanceStatusPicker
+                            value={marks[s.id]}
+                            locked={weekend}
+                            onChange={(status) =>
+                              setMarks((prev) => {
+                                if (isHistoricalStatus(prev[s.id])) return prev;
+                                return { ...prev, [s.id]: status };
+                              })
+                            }
+                          />
                         </div>
-                        {(marks[s.id] === "leave" || marks[s.id] === "no_session") && (
+                        {(weekend || isHistoricalStatus(marks[s.id])) && notesByStudent[s.id] ? (
+                          <p className="text-[11px] text-muted-foreground">{notesByStudent[s.id]}</p>
+                        ) : null}
+                        {!weekend && marks[s.id] === "no_session" ? (
                           <Input
                             className="h-8 text-xs"
-                            placeholder="Reason / leave note for parents"
+                            placeholder="Note for parents"
                             value={notesByStudent[s.id] || ""}
                             onChange={(e) =>
                               setNotesByStudent((prev) => ({ ...prev, [s.id]: e.target.value }))
                             }
                           />
-                        )}
+                        ) : null}
                       </div>
                     ))
                   )}

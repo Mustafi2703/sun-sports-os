@@ -1,7 +1,14 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
-import { attendanceByBatchWeeks, attendanceGrid, recomputeAttendancePctMany } from "../lib/attendance.js";
+import {
+  attendanceByBatchWeeks,
+  attendanceGrid,
+  AttendanceWriteError,
+  liveAttendancePctByStudent,
+  parseSessionDate,
+  writeAttendanceMarks,
+} from "../lib/attendance.js";
 import { hashPin, normalizePhone, requireAuth } from "../lib/auth.js";
 import { FeeActionError, mapFeePayment, reverseFeePayment } from "../lib/feeReversal.js";
 
@@ -50,9 +57,12 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
   const batchMap = Object.fromEntries(batches.map((b) => [b.id, mapBatch(b)]));
   const coachMap = Object.fromEntries(coaches.map((c) => [c.id, mapCoach(c)]));
 
+  const pctByStudent = await liveAttendancePctByStudent(mine.map((s) => s.id));
   const children = await Promise.all(
     mine.map(async (s) => {
       const mapped = mapStudent(s);
+      const livePct = pctByStudent.get(s.id);
+      if (livePct != null) mapped.attendancePct = livePct;
       const batch = s.batchId ? batchMap[s.batchId] : undefined;
       const coach = batch?.coachId ? coachMap[batch.coachId] : undefined;
       const [grid, payments, notes, installments] = await Promise.all([
@@ -190,9 +200,12 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
     take: 200,
   });
 
+  const pctByStudent = await liveAttendancePctByStudent(students.map((s) => s.id));
   // Strip fee amounts/status from non-head coaches
   const mappedStudents = students.map((s) => {
     const m = mapStudent(s);
+    const livePct = pctByStudent.get(s.id);
+    if (livePct != null) m.attendancePct = livePct;
     if (!isHead) {
       return {
         ...m,
@@ -299,8 +312,13 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
   const coach = await resolveCoach(req);
   if (!coach) return res.status(400).json({ error: "Coach profile not linked" });
 
-  const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
-  date.setHours(0, 0, 0, 0);
+  let parsed: { date: Date; iso: string };
+  try {
+    parsed = parseSessionDate(req.body.date);
+  } catch (e) {
+    if (e instanceof AttendanceWriteError) return res.status(e.status).json({ error: e.message });
+    return res.status(400).json({ error: "Date is not valid." });
+  }
   const batchId = req.body.batchId || null;
   if (batchId) {
     const batch = await prisma.batch.findUnique({ where: { id: batchId }, select: { id: true } });
@@ -308,9 +326,6 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
   }
 
   const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
-  if (!marks.length) return res.status(400).json({ error: "marks required" });
-  const allowed = new Set(["present", "absent", "late", "leave", "no_session"]);
-
   const found = await prisma.student.findMany({
     where: { id: { in: marks.map((m) => m.studentId) } },
     select: { id: true },
@@ -322,19 +337,13 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
     }
   }
 
-  const results = await Promise.all(
-    marks.map((m) => {
-      const status = allowed.has(m.status) ? m.status : "present";
-      const note = m.note != null ? String(m.note).trim() || null : null;
-      return prisma.attendanceRecord.upsert({
-        where: { studentId_date: { studentId: m.studentId, date } },
-        create: { studentId: m.studentId, batchId, date, status, note },
-        update: { status, batchId, note },
-      });
-    })
-  );
-  await recomputeAttendancePctMany(marks.map((m) => m.studentId));
-  res.json({ ok: true, count: results.length });
+  try {
+    const result = await writeAttendanceMarks({ date: parsed.date, iso: parsed.iso, batchId, marks });
+    res.json(result);
+  } catch (e) {
+    if (e instanceof AttendanceWriteError) return res.status(e.status).json({ error: e.message });
+    res.status(400).json({ error: "Could not save attendance" });
+  }
 });
 
 /** Head coach (or any coach for own awareness) — list closures */

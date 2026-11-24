@@ -11,6 +11,8 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AttendanceDayGrid, AttendanceLegend } from "@/components/app/AttendanceCalendar";
+import { STATUS_LABEL, summarizeGrid } from "@/lib/academyDays";
 import { api, initialsColor, initialsOf, inr, type AcademyClosure, type ParentChild, type ParentPortalData, type TournamentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -476,8 +478,9 @@ function HomeTab({
   const childTournaments = tournaments
     .filter((t) => t.studentIds.includes(child.id) || t.status !== "completed")
     .slice(0, 4);
-  const present = child.attendanceGrid.filter((d) => d.status === "present" || d.status === "late").length;
-  const marked = child.attendanceGrid.filter((d) => d.status !== "none").length;
+  const month = summarizeGrid(child.attendanceGrid);
+  const present = month.present;
+  const marked = month.counted;
   const noteCount = notifications.filter((n) => n.kind === "note").length;
 
   return (
@@ -829,16 +832,16 @@ function FeesTab({ child }: { child: ParentChild }) {
 }
 
 function AttendanceTab({ child, closures = [] }: { child: ParentChild; closures?: AcademyClosure[] }) {
-  const present = child.attendanceGrid.filter((d) => d.status === "present" || d.status === "late").length;
-  const absent = child.attendanceGrid.filter((d) => d.status === "absent").length;
-  const leave = child.attendanceGrid.filter((d) => d.status === "leave").length;
-  const noSession = child.attendanceGrid.filter((d) => d.status === "no_session").length;
-  const marked = child.attendanceGrid.filter((d) => d.status !== "none").length;
+  const month = summarizeGrid(child.attendanceGrid);
+  const present = month.present;
+  const absent = month.absent;
+  const leave = month.leave;
+  const noSession = month.off;
   const upcomingClosures = closures.filter((c) => c.date >= new Date().toISOString().slice(0, 10)).slice(0, 6);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Attendance" description={`30-day calendar for ${child.name} — holidays & leave notes included.`} />
+      <PageHeader title="Attendance" description={`30-day calendar for ${child.name}. Weekends are off. Holidays and saved notes are included.`} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Rate" value={child.attendancePct > 0 ? `${child.attendancePct}%` : "—"} icon={<CalendarCheck className="h-4 w-4" />} />
         <StatCard label="Present" value={String(present)} icon={<Users className="h-4 w-4" />} tone="success" />
@@ -862,32 +865,46 @@ function AttendanceTab({ child, closures = [] }: { child: ParentChild; closures?
 
       <div className="rounded-2xl border border-border bg-card p-5">
         <p className="font-display font-semibold mb-1">Last 30 days</p>
-        <p className="text-xs text-muted-foreground mb-4">{marked} days with records</p>
-        <div className="grid grid-cols-10 gap-1.5">
-          {child.attendanceGrid.map((m) => (
-            <div
-              key={m.date}
-              title={`${m.date}: ${m.status}${m.closureTitle ? ` — ${m.closureTitle}` : ""}${m.note ? ` (${m.note})` : ""}${m.closureReason ? ` · ${m.closureReason}` : ""}`}
-              className={cn(
-                "aspect-square rounded-md",
-                m.status === "present" && "bg-primary/80",
-                m.status === "late" && "bg-amber-500/80",
-                m.status === "absent" && "bg-destructive/80",
-                m.status === "leave" && "bg-blue-500/70",
-                m.status === "no_session" && "bg-slate-400/50",
-                m.status === "none" && "bg-muted/40"
-              )}
-            />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-3 mt-4 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-primary/80" /> Present</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-500/80" /> Late</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-destructive/80" /> Absent</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-blue-500/70" /> Leave</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-slate-400/50" /> Holiday / no session</span>
-        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          {month.counted} session days counted. Weekends are off and are not missed sessions.
+        </p>
+        <AttendanceDayGrid days={child.attendanceGrid} />
+        <AttendanceLegend />
       </div>
+
+      {month.notes.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="font-display font-semibold mb-2">Notes on these days</p>
+          <p className="text-xs text-muted-foreground mb-3">
+            Includes leave notes saved earlier. New attendance is marked present, absent, or no session.
+          </p>
+          <div className="space-y-2">
+            {month.notes.map((d) => (
+              <div key={`${d.date}-note`} className="text-sm rounded-lg border border-border/60 px-3 py-2">
+                <p className="font-medium">{d.date} · {STATUS_LABEL[d.status] || d.status}{d.offReason === "weekend" ? " · weekend, not counted" : ""}</p>
+                <p className="text-xs text-muted-foreground">{d.note}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {month.weekendMarks.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="font-display font-semibold mb-2">Weekend marks kept</p>
+          <p className="text-xs text-muted-foreground mb-3">
+            These were saved earlier. They stay on record and are not counted as missed sessions.
+          </p>
+          <div className="space-y-2">
+            {month.weekendMarks.map((d) => (
+              <div key={`${d.date}-weekend`} className="text-sm rounded-lg border border-border/60 px-3 py-2">
+                <p className="font-medium">{d.date} · {STATUS_LABEL[d.status] || d.status}</p>
+                {d.note ? <p className="text-xs text-muted-foreground">{d.note}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

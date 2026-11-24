@@ -97,6 +97,8 @@ export interface AttendanceGridDay {
   note?: string;
   closureTitle?: string;
   closureReason?: string;
+  /** weekend = Saturday or Sunday. closure = a published no-session day. */
+  offReason?: "weekend" | "closure";
 }
 
 export interface AcademyClosure {
@@ -150,7 +152,7 @@ export interface AcademySnapshot {
     overdue1Count: number;
     overdue8Count: number;
     monthlyRevenueSeries: { month: string; revenue: number }[];
-    todayAttendance?: { marked: number; present: number; absent: number };
+    todayAttendance?: { marked: number; present: number; absent: number; offDay?: boolean };
     attendanceByBatch?: { batch: string; batchId: string; w1: number; w2: number; w3: number; w4: number }[];
     recentActivity?: { type: string; text: string; time: string; tone: "success" | "warning" | "info" | "default" }[];
   };
@@ -545,7 +547,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/payments/${id}`, { method: "DELETE" }),
   listAttendance: (q: { date?: string; batchId?: string; studentId?: string }) => {
     const qs = "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
-    return request<{ id: string; studentId: string; status: string; date: string }[]>(`/api/attendance${qs}`);
+    return request<{ id: string; studentId: string; status: string; date: string; note?: string | null }[]>(`/api/attendance${qs}`);
   },
   attendanceGrid: (studentId: string, days = 30) =>
     request<{ studentId: string; days: number; grid: AttendanceGridDay[] }>(

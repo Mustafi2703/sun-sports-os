@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { MessageCircle, Phone, Calendar, Pencil, Trash2, Loader2 } from "lucide-react";
+import { AttendanceDayGrid, AttendanceLegend } from "@/components/app/AttendanceCalendar";
 import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
@@ -171,22 +172,10 @@ export const StudentDetailModal = ({
                     ({student.attendancePct > 0 ? `${student.attendancePct}% overall` : "no marks yet"})
                   </span>
                 </h3>
-                <div className="grid grid-cols-10 gap-1.5">
-                  {(grid.length ? grid : Array.from({ length: 30 }, (_, i) => ({ date: String(i), status: "none" as const }))).map((m) => (
-                    <div
-                      key={m.date}
-                      title={`${m.date}: ${m.status}`}
-                      className={cn(
-                        "aspect-square rounded",
-                        m.status === "present" && "bg-primary/80",
-                        m.status === "absent" && "bg-destructive/80",
-                        m.status === "late" && "bg-amber-500/80",
-                        m.status === "none" && "bg-muted"
-                      )}
-                    />
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-2">Grey = no session · Green present · Amber late · Red absent</p>
+                <AttendanceDayGrid
+                  days={grid.length ? grid : Array.from({ length: 30 }, (_, i) => ({ date: String(i), status: "none" as const }))}
+                />
+                <AttendanceLegend />
               </section>
 
               <section className="md:col-span-2">
