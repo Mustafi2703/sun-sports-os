@@ -19,27 +19,40 @@ function ageFromDob(dob: string): number {
 }
 
 async function main() {
-  const existing = await prisma.student.count();
-  if (existing > 0) {
-    console.log(`DB already has ${existing} students — skipping seed`);
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_SEED !== "true") {
+    throw new Error(
+      "Refusing to seed while NODE_ENV=production. Seed is a manual local/dev/staging action and is not run on boot. Do not point it at the production database. A staging database that runs with NODE_ENV=production can opt in with ALLOW_SEED=true."
+    );
+  }
+
+  const [studentCount, coachCount, batchCount, academyCount] = await Promise.all([
+    prisma.student.count(),
+    prisma.coach.count(),
+    prisma.batch.count(),
+    prisma.academy.count(),
+  ]);
+
+  if (studentCount > 0 || coachCount > 0 || batchCount > 0) {
+    console.log(
+      `Database already has roster data (students=${studentCount}, coaches=${coachCount}, batches=${batchCount}). Seed did not insert, update, or delete any rows.`
+    );
     return;
   }
 
-  console.log("Seeding Sun Sports HP data…");
+  console.log("Seeding Sun Sports HP demo data...");
 
-  await prisma.academy.deleteMany();
-  await prisma.enquiry.deleteMany();
-  await prisma.batch.deleteMany();
-  await prisma.coach.deleteMany();
-
-  await prisma.academy.create({
-    data: {
-      name: "Sun Sports",
-      phone: "+91 90330 02641",
-      address: "Ahmedabad, Gujarat",
-      program: "High Performance Cricket",
-    },
-  });
+  if (academyCount === 0) {
+    await prisma.academy.create({
+      data: {
+        name: "Sun Sports",
+        phone: "+91 90330 02641",
+        address: "Ahmedabad, Gujarat",
+        program: "High Performance Cricket",
+      },
+    });
+  } else {
+    console.log("Academy row already exists. Left it unchanged.");
+  }
 
   const coachData = [
     { name: "Harry Sir", phone: "9033002641", specialty: "Head Coach" },

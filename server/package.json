@@ -7,11 +7,15 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "start:prod": "tsx src/index.ts",
+    "start:prod": "sh scripts/start-prod.sh",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:baseline": "sh scripts/baseline-existing.sh",
+    "db:reset": "sh scripts/reset-local.sh",
     "db:seed": "tsx prisma/seed.ts",
-    "db:setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
+    "db:setup": "prisma generate && prisma migrate deploy && tsx prisma/seed.ts",
     "smoke": "tsx ../scripts/smoke-test.ts"
   },
   "dependencies": {
