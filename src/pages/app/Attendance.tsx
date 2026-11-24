@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Check, X, Clock, MessageCircle, Save } from "lucide-react";
+import { Calendar, Check, MessageCircle, Save } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
+import { AttendanceStatusPicker, WeekendOffNotice } from "@/components/app/AttendanceStatusPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAcademy } from "@/context/AcademyContext";
+import { isHistoricalStatus, isMarkableStatus, isWeekend, weekdayName, type MarkableStatus } from "@/lib/academyDays";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -18,6 +20,7 @@ const Attendance = () => {
   const [date, setDate] = useState(today);
   const [batchId, setBatchId] = useState("");
   const [marks, setMarks] = useState<Record<string, Mark>>({});
+  const [notesByStudent, setNotesByStudent] = useState<Record<string, string>>({});
   const [loadingMarks, setLoadingMarks] = useState(false);
   const [closures, setClosures] = useState<{ id: string; date: string; title: string; reason: string; type: string }[]>([]);
   const [closureForm, setClosureForm] = useState({ date: today, title: "", reason: "", type: "holiday" });
@@ -39,32 +42,59 @@ const Attendance = () => {
       .listAttendance({ date, ...(batchId ? { batchId } : {}) })
       .then((rows) => {
         const next: Record<string, Mark> = {};
+        const notes: Record<string, string> = {};
         for (const r of rows) {
           if (r.status === "present" || r.status === "absent" || r.status === "late" || r.status === "leave" || r.status === "no_session") {
             next[r.studentId] = r.status;
+            if (r.note) notes[r.studentId] = r.note;
           }
         }
         setMarks(next);
+        setNotesByStudent(notes);
       })
-      .catch(() => setMarks({}))
+      .catch(() => {
+        setMarks({});
+        setNotesByStudent({});
+      })
       .finally(() => setLoadingMarks(false));
   }, [date, batchId, api]);
 
   const batchStudents = useMemo(() => students.filter((s) => s.batchId === batchId), [batchId, students]);
 
-  const set = (id: string, mark: Mark) => setMarks((prev) => ({ ...prev, [id]: mark }));
+  const weekend = isWeekend(date);
+
+  const set = (id: string, mark: MarkableStatus) => {
+    setMarks((prev) => {
+      if (isHistoricalStatus(prev[id])) return prev;
+      return { ...prev, [id]: mark };
+    });
+  };
 
   const markAllPresent = () => {
-    const next: Record<string, Mark> = {};
-    batchStudents.forEach((s) => {
-      next[s.id] = "present";
+    if (weekend) return;
+    setMarks((prev) => {
+      const next = { ...prev };
+      batchStudents.forEach((s) => {
+        if (isHistoricalStatus(next[s.id])) return;
+        next[s.id] = "present";
+      });
+      return next;
     });
-    setMarks(next);
-    toast.success(`All ${batchStudents.length} students marked present`);
+    toast.success("Weekday roster marked present. Saved leave and late marks were left as they are.");
   };
 
   const saveAttendance = async () => {
-    const payload = Object.entries(marks).map(([studentId, status]) => ({ studentId, status }));
+    if (weekend) {
+      toast.error("No session on Saturday or Sunday.");
+      return;
+    }
+    const payload = Object.entries(marks)
+      .filter(([, status]) => isMarkableStatus(status))
+      .map(([studentId, status]) => ({
+        studentId,
+        status,
+        note: notesByStudent[studentId] || undefined,
+      }));
     if (!payload.length) {
       toast.error("Mark at least one student");
       return;
@@ -83,7 +113,7 @@ const Attendance = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Attendance" description="Mark or edit logged sessions. Leave / no-session and academy holidays appear on parent calendars." />
+      <PageHeader title="Attendance" description="Mark weekday sessions. Saturday and Sunday are off for every batch. Saved leave and late marks stay on record, and academy holidays still show on calendars." />
 
       <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
         <h3 className="font-display font-semibold">Academy holidays / no-session days</h3>
@@ -148,13 +178,15 @@ const Attendance = () => {
             <SelectContent>{batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <Button onClick={markAllPresent} variant="outline" disabled={!batchStudents.length}>
+        <Button onClick={markAllPresent} variant="outline" disabled={weekend || !batchStudents.length}>
           <Check className="h-4 w-4 mr-1.5" /> Mark All Present
         </Button>
-        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => void saveAttendance()}>
+        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" disabled={weekend} onClick={() => void saveAttendance()}>
           <Save className="h-4 w-4 mr-1.5" /> Save
         </Button>
       </div>
+
+      {weekend ? <WeekendOffNotice date={date} weekday={weekdayName(date)} /> : null}
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between">
@@ -180,22 +212,19 @@ const Attendance = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <MarkBtn active={m === "present"} tone="success" onClick={() => set(s.id, "present")}><Check className="h-4 w-4" /></MarkBtn>
-                    <MarkBtn active={m === "late"} tone="warning" onClick={() => set(s.id, "late")}><Clock className="h-4 w-4" /></MarkBtn>
-                    <MarkBtn active={m === "absent"} tone="danger" onClick={() => set(s.id, "absent")}><X className="h-4 w-4" /></MarkBtn>
-                    <button
-                      type="button"
-                      title="Leave"
-                      onClick={() => set(s.id, "leave")}
-                      className={cn("h-9 px-2 rounded-lg text-[10px] font-semibold border", m === "leave" ? "bg-blue-500 text-white border-blue-500" : "border-border text-muted-foreground")}
-                    >Lv</button>
-                    <button
-                      type="button"
-                      title="No session"
-                      onClick={() => set(s.id, "no_session")}
-                      className={cn("h-9 px-2 rounded-lg text-[10px] font-semibold border", m === "no_session" ? "bg-slate-500 text-white border-slate-500" : "border-border text-muted-foreground")}
-                    >NS</button>
+                  <div className="flex flex-col items-stretch sm:items-end gap-1.5">
+                    <AttendanceStatusPicker variant="icons" value={m} locked={weekend} onChange={(status) => set(s.id, status)} />
+                    {(weekend || isHistoricalStatus(m)) && notesByStudent[s.id] ? (
+                      <p className="text-[11px] text-muted-foreground max-w-xs sm:text-right">{notesByStudent[s.id]}</p>
+                    ) : null}
+                    {!weekend && m === "no_session" ? (
+                      <Input
+                        className="h-8 text-xs sm:w-64"
+                        placeholder="Note for parents"
+                        value={notesByStudent[s.id] || ""}
+                        onChange={(e) => setNotesByStudent((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                      />
+                    ) : null}
                   </div>
                 </div>
               );
@@ -265,23 +294,6 @@ const Attendance = () => {
         </div>
       </div>
     </div>
-  );
-};
-
-const MarkBtn = ({ active, tone, children, onClick }: { active: boolean; tone: "success" | "warning" | "danger"; children: React.ReactNode; onClick: () => void }) => {
-  const styles = {
-    success: active ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-primary",
-    warning: active ? "bg-amber-500 text-background" : "border border-border text-muted-foreground hover:text-amber-400",
-    danger: active ? "bg-destructive text-destructive-foreground" : "border border-border text-muted-foreground hover:text-destructive",
-  }[tone];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn("h-11 w-11 sm:h-9 sm:w-9 rounded-lg flex items-center justify-center transition-colors", styles)}
-    >
-      {children}
-    </button>
   );
 };
 

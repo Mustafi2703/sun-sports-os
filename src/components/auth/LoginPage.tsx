@@ -52,7 +52,7 @@ const THEMES: Record<Portal, PortalTheme> = {
     accentSoft: "bg-sky-500/15 text-sky-300 border-sky-500/25",
     modules: [
       { icon: CreditCard, title: "Fee Management", desc: "Dues, reminders, and payment history" },
-      { icon: CalendarCheck, title: "Attendance", desc: "Present, late, leave & holidays" },
+      { icon: CalendarCheck, title: "Attendance", desc: "Present, absent, and holidays" },
       { icon: TrendingUp, title: "Performance", desc: "Batting, bowling, fielding & fitness" },
       { icon: StickyNote, title: "Coach notes", desc: "Feedback as soon as coaches post it" },
       { icon: User, title: "Profile", desc: "Batch, coach, and student details" },

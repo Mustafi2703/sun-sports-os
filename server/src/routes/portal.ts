@@ -1,8 +1,16 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
-import { attendanceByBatchWeeks, attendanceGrid, recomputeAttendancePctMany } from "../lib/attendance.js";
-import { normalizePhone, requireAuth } from "../lib/auth.js";
+import {
+  attendanceByBatchWeeks,
+  attendanceGrid,
+  AttendanceWriteError,
+  liveAttendancePctByStudent,
+  parseSessionDate,
+  writeAttendanceMarks,
+} from "../lib/attendance.js";
+import { hashPin, normalizePhone, requireAuth } from "../lib/auth.js";
+import { FeeActionError, mapFeePayment, reverseFeePayment } from "../lib/feeReversal.js";
 
 export const portalRouter = Router();
 
@@ -49,9 +57,12 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
   const batchMap = Object.fromEntries(batches.map((b) => [b.id, mapBatch(b)]));
   const coachMap = Object.fromEntries(coaches.map((c) => [c.id, mapCoach(c)]));
 
+  const pctByStudent = await liveAttendancePctByStudent(mine.map((s) => s.id));
   const children = await Promise.all(
     mine.map(async (s) => {
       const mapped = mapStudent(s);
+      const livePct = pctByStudent.get(s.id);
+      if (livePct != null) mapped.attendancePct = livePct;
       const batch = s.batchId ? batchMap[s.batchId] : undefined;
       const coach = batch?.coachId ? coachMap[batch.coachId] : undefined;
       const [grid, payments, notes, installments] = await Promise.all([
@@ -80,7 +91,7 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
         batch: batch || null,
         coach: coach || null,
         attendanceGrid: grid,
-        payments,
+        payments: payments.map(mapFeePayment),
         feeSchedule: installments.map((i) => ({
           id: i.id,
           monthLabel: i.monthLabel,
@@ -189,9 +200,12 @@ portalRouter.get("/coach", requireAuth("coach"), async (req, res) => {
     take: 200,
   });
 
+  const pctByStudent = await liveAttendancePctByStudent(students.map((s) => s.id));
   // Strip fee amounts/status from non-head coaches
   const mappedStudents = students.map((s) => {
     const m = mapStudent(s);
+    const livePct = pctByStudent.get(s.id);
+    if (livePct != null) m.attendancePct = livePct;
     if (!isHead) {
       return {
         ...m,
@@ -298,8 +312,13 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
   const coach = await resolveCoach(req);
   if (!coach) return res.status(400).json({ error: "Coach profile not linked" });
 
-  const date = new Date(req.body.date || new Date().toISOString().slice(0, 10));
-  date.setHours(0, 0, 0, 0);
+  let parsed: { date: Date; iso: string };
+  try {
+    parsed = parseSessionDate(req.body.date);
+  } catch (e) {
+    if (e instanceof AttendanceWriteError) return res.status(e.status).json({ error: e.message });
+    return res.status(400).json({ error: "Date is not valid." });
+  }
   const batchId = req.body.batchId || null;
   if (batchId) {
     const batch = await prisma.batch.findUnique({ where: { id: batchId }, select: { id: true } });
@@ -307,9 +326,6 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
   }
 
   const marks: { studentId: string; status: string; note?: string }[] = req.body.marks || [];
-  if (!marks.length) return res.status(400).json({ error: "marks required" });
-  const allowed = new Set(["present", "absent", "late", "leave", "no_session"]);
-
   const found = await prisma.student.findMany({
     where: { id: { in: marks.map((m) => m.studentId) } },
     select: { id: true },
@@ -321,19 +337,13 @@ portalRouter.post("/coach/attendance", requireAuth("coach"), async (req, res) =>
     }
   }
 
-  const results = await Promise.all(
-    marks.map((m) => {
-      const status = allowed.has(m.status) ? m.status : "present";
-      const note = m.note != null ? String(m.note).trim() || null : null;
-      return prisma.attendanceRecord.upsert({
-        where: { studentId_date: { studentId: m.studentId, date } },
-        create: { studentId: m.studentId, batchId, date, status, note },
-        update: { status, batchId, note },
-      });
-    })
-  );
-  await recomputeAttendancePctMany(marks.map((m) => m.studentId));
-  res.json({ ok: true, count: results.length });
+  try {
+    const result = await writeAttendanceMarks({ date: parsed.date, iso: parsed.iso, batchId, marks });
+    res.json(result);
+  } catch (e) {
+    if (e instanceof AttendanceWriteError) return res.status(e.status).json({ error: e.message });
+    res.status(400).json({ error: "Could not save attendance" });
+  }
 });
 
 /** Head coach (or any coach for own awareness) — list closures */
@@ -702,6 +712,51 @@ portalRouter.delete("/coach/students/:id", requireAuth("coach"), async (req, res
   }
 });
 
+/** Head coach — set parent portal PIN for a student's parent WhatsApp */
+portalRouter.post("/coach/students/:id/reset-parent-pin", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only head coach can reset parent PINs" });
+  }
+
+  const pin = String(req.body.pin || "").replace(/\D/g, "");
+  if (!/^\d{4,8}$/.test(pin)) {
+    return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+  }
+
+  const id = String(req.params.id);
+  const student = await prisma.student.findUnique({ where: { id } });
+  if (!student) return res.status(404).json({ error: "Student not found" });
+
+  const phone = normalizePhone(student.parentPhone);
+  if (!phone || phone.length < 10) {
+    return res.status(400).json({ error: "This student has no parent WhatsApp on file" });
+  }
+
+  const { ensureParentUser } = await import("../lib/ensureUser.js");
+  const parent = await ensureParentUser(phone, student.parentName, student.parentEmail);
+  if (!parent) {
+    return res.status(400).json({ error: "Could not find or create the parent portal login" });
+  }
+
+  await prisma.user.update({
+    where: { id: parent.id },
+    data: {
+      pinHash: await hashPin(pin),
+      mustChangePin: true,
+      pinChangedAt: null,
+    },
+  });
+
+  res.json({
+    ok: true,
+    parentPhone: phone,
+    parentName: parent.name,
+    mustChangePin: true,
+    message: "Parent PIN updated. They must choose a new PIN after signing in.",
+  });
+});
+
 portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, res) => {
   const coach = await resolveCoach(req);
   if (!coach?.isHeadCoach) {
@@ -746,6 +801,44 @@ portalRouter.get("/coach/fee-ledger", requireAuth("coach"), async (req, res) => 
   const ledger = await buildFeeLedger();
   res.setHeader("Cache-Control", "no-store");
   res.json(ledger);
+});
+
+/** Head coach — receipt history, including reversed receipts. */
+portalRouter.get("/coach/payments", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only the head coach can view fee receipts" });
+  }
+  const studentId = String(req.query.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  const rows = await prisma.feePayment.findMany({
+    where: { studentId },
+    orderBy: { paidAt: "desc" },
+    take: 100,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(rows.map(mapFeePayment));
+});
+
+/** Head coach — void one receipt. The row is kept. The month goes back to unpaid. */
+portalRouter.post("/coach/payments/:id/reverse", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only the head coach can reverse fee receipts" });
+  }
+  try {
+    const result = await reverseFeePayment(
+      String(req.params.id),
+      { userId: req.user!.id, name: req.user!.name, role: "coach" },
+      String(req.body?.reason ?? "")
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
+  } catch (e) {
+    if (e instanceof FeeActionError) return res.status(e.status).json({ error: e.message });
+    console.error("coach reverse payment:", e);
+    res.status(500).json({ error: "Could not reverse payment" });
+  }
 });
 
 /** Head coach — mark this month received even when no due row exists. ₹0 is allowed. */
@@ -817,8 +910,11 @@ portalRouter.post("/coach/notes", requireAuth("coach"), async (req, res) => {
   res.status(201).json(row);
 });
 
-/** Demo accounts for login screens */
+/** Local demo account list. Disabled in production so live phones and the default PIN are not public. */
 portalRouter.get("/demo-accounts", async (_req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not found" });
+  }
   const [parents, coaches, admin] = await Promise.all([
     prisma.user.findMany({
       where: { role: "parent" },
@@ -837,7 +933,6 @@ portalRouter.get("/demo-accounts", async (_req, res) => {
     }),
   ]);
   res.json({
-    pin: process.env.DEFAULT_PIN || "1234",
     admin: admin || { phone: "9000000001", name: "Sun Sports Team" },
     coaches,
     parents,

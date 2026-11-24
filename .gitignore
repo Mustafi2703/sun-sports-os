@@ -9,6 +9,13 @@ lerna-debug.log*
 
 node_modules
 dist
+
+# Local secrets. .env.production in the repo root is a public frontend URL only.
+.env
+.env.*
+!.env.production
+!.env.example
+!server/.env.example
 dist-ssr
 *.local
 

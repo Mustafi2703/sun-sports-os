@@ -27,7 +27,7 @@ interface AcademyContextValue {
   overdue8Count: number;
   monthlyRevenueSeries: { month: string; revenue: number }[];
   todaysSessions: { batchId: string; time: string; venue: string }[];
-  todayAttendance: { marked: number; present: number; absent: number };
+  todayAttendance: { marked: number; present: number; absent: number; offDay?: boolean };
   recentActivity: { type: string; text: string; time: string; tone: "success" | "warning" | "info" | "default" }[];
   attendanceByBatch: { batch: string; w1: number; w2: number; w3: number; w4: number }[];
   getCoach: (id: string) => Coach | undefined;

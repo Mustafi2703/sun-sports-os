@@ -104,7 +104,7 @@ const Fees = () => {
     <div className="space-y-5">
       <PageHeader
         title="Fee Management"
-        description="See every month that was received, who still owes, and mark each month as it comes in."
+        description="See every month that was received, who still owes, and mark each month as it comes in. A mistaken receipt can be reversed."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setPkgOpen(true)}>
@@ -152,7 +152,18 @@ const Fees = () => {
         </TabsList>
 
         <TabsContent value="dues" className="mt-4 space-y-3">
-          <FeeCollectionBoard ledger={ledger} inr={inr} busyKey={busyKey} onMark={(id, name, month) => void markReceived(id, name, month)} />
+          <FeeCollectionBoard
+            ledger={ledger}
+            inr={inr}
+            busyKey={busyKey}
+            onMark={(id, name, month) => void markReceived(id, name, month)}
+            onReverse={async ({ paymentId, studentName, month, reason }) => {
+              await api.reversePayment(paymentId, reason);
+              toast.success(`${studentName}: ${month} receipt reversed`);
+              await load();
+              await refresh();
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="packages" className="mt-4">

@@ -103,6 +103,7 @@ export function BatchFormDialog({
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Schedule</Label>
             <Input value={form.schedule} onChange={(e) => set("schedule", e.target.value)} />
+            <p className="text-[11px] text-muted-foreground">Saturday and Sunday are off for every batch. This text is only a label.</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Timings</Label>

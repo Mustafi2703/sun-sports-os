@@ -8,7 +8,9 @@ import {
   type FeePackageOption,
   type StudentFormValues,
 } from "@/components/app/StudentFormDialog";
+import { AttendanceStatusPicker, WeekendOffNotice } from "@/components/app/AttendanceStatusPicker";
 import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
+import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
@@ -25,19 +27,13 @@ import {
   type AttendanceMark,
   type CoachPortalData,
   type FeeLedger,
+  type FeePayment,
   type Student,
 } from "@/lib/api";
+import { isHistoricalStatus, isMarkableStatus, isWeekend, weekdayName } from "@/lib/academyDays";
 import { cn, parseRupees } from "@/lib/utils";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
-
-const MARKS: { value: AttendanceMark; label: string; title: string }[] = [
-  { value: "present", label: "P", title: "Present" },
-  { value: "late", label: "L", title: "Late" },
-  { value: "absent", label: "A", title: "Absent" },
-  { value: "leave", label: "Lv", title: "Leave (parent informed)" },
-  { value: "no_session", label: "NS", title: "No session" },
-];
 
 export default function CoachHome() {
   const [data, setData] = useState<CoachPortalData | null>(null);
@@ -63,6 +59,7 @@ export default function CoachHome() {
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
   const [receiptBusy, setReceiptBusy] = useState<string | null>(null);
   const [ledger, setLedger] = useState<FeeLedger | null>(null);
+  const [feeRevision, setFeeRevision] = useState(0);
 
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -226,18 +223,20 @@ export default function CoachHome() {
     }
   };
 
+  const weekend = isWeekend(date);
+
   const saveAttendance = async () => {
+    if (weekend) {
+      toast.error("No session on Saturday or Sunday.");
+      return;
+    }
     const payload = batchStudents
       .map((s) => ({
         studentId: s.id,
         status: marks[s.id],
         note: notesByStudent[s.id] || undefined,
       }))
-      .filter((m) => !!m.status && m.status !== "none") as {
-        studentId: string;
-        status: AttendanceMark;
-        note?: string;
-      }[];
+      .filter((m) => isMarkableStatus(m.status));
     if (!payload.length) {
       toast.error("Mark at least one student");
       return;
@@ -245,7 +244,7 @@ export default function CoachHome() {
     setSaving(true);
     try {
       await api.coachSaveAttendance({ date, batchId: activeBatch, marks: payload });
-      toast.success(`Saved ${payload.length} marks — you can edit anytime`);
+      toast.success(`Saved ${payload.length} marks. Earlier leave and late marks stay as they are.`);
       const res = await api.coachListAttendance({ date, batchId: activeBatch });
       const next: Record<string, AttendanceMark> = {};
       const notes: Record<string, string> = {};
@@ -658,11 +657,11 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Attendance"
-                description="Any coach can mark any batch. Load a past date to edit logged marks."
+                description="Saturday and Sunday are off for every batch. On other days, mark present, absent, or no session."
                 actions={
                   <Button
                     className="bg-primary text-primary-foreground"
-                    disabled={saving || !batchStudents.length}
+                    disabled={saving || weekend || !batchStudents.length}
                     onClick={() => void saveAttendance()}
                   >
                     {saving ? "Saving…" : "Save attendance"}
@@ -692,18 +691,25 @@ export default function CoachHome() {
                 </div>
               </div>
 
-              {dayClosure && (
+              {weekend ? (
+                <WeekendOffNotice
+                  date={date}
+                  weekday={weekdayName(date)}
+                  closureTitle={dayClosure?.title}
+                  closureReason={dayClosure?.reason}
+                />
+              ) : dayClosure ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-                  <p className="font-medium">No session — {dayClosure.title}</p>
+                  <p className="font-medium">No session: {dayClosure.title}</p>
                   {dayClosure.reason ? <p className="text-xs text-muted-foreground mt-0.5">{dayClosure.reason}</p> : null}
                 </div>
-              )}
+              ) : null}
 
               <div className="rounded-2xl border border-border bg-card overflow-hidden">
                 <div className="p-5 border-b border-border">
-                  <h3 className="font-display font-semibold">Roster — edit logged marks anytime</h3>
+                  <h3 className="font-display font-semibold">Roster</h3>
                   <p className="text-xs text-muted-foreground">
-                    {batchStudents.length} students · P Present · L Late · A Absent · Lv Leave · NS No session
+                    {batchStudents.length} students. P Present, A Absent, NS No session. Saved leave and late marks stay as they are.
                   </p>
                 </div>
                 <div className="divide-y divide-border">
@@ -722,35 +728,30 @@ export default function CoachHome() {
                               <p className="text-xs text-muted-foreground truncate">{s.role || "Player"}</p>
                             </div>
                           </div>
-                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
-                            {MARKS.map((m) => (
-                              <button
-                                key={m.value}
-                                type="button"
-                                title={m.title}
-                                onClick={() => setMarks((prev) => ({ ...prev, [s.id]: m.value }))}
-                                className={cn(
-                                  "h-9 min-w-9 px-1.5 rounded-lg text-[11px] font-semibold border",
-                                  marks[s.id] === m.value
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "border-border text-muted-foreground hover:bg-muted/30"
-                                )}
-                              >
-                                {m.label}
-                              </button>
-                            ))}
-                          </div>
+                          <AttendanceStatusPicker
+                            value={marks[s.id]}
+                            locked={weekend}
+                            onChange={(status) =>
+                              setMarks((prev) => {
+                                if (isHistoricalStatus(prev[s.id])) return prev;
+                                return { ...prev, [s.id]: status };
+                              })
+                            }
+                          />
                         </div>
-                        {(marks[s.id] === "leave" || marks[s.id] === "no_session") && (
+                        {(weekend || isHistoricalStatus(marks[s.id])) && notesByStudent[s.id] ? (
+                          <p className="text-[11px] text-muted-foreground">{notesByStudent[s.id]}</p>
+                        ) : null}
+                        {!weekend && marks[s.id] === "no_session" ? (
                           <Input
                             className="h-8 text-xs"
-                            placeholder="Reason / leave note for parents"
+                            placeholder="Note for parents"
                             value={notesByStudent[s.id] || ""}
                             onChange={(e) =>
                               setNotesByStudent((prev) => ({ ...prev, [s.id]: e.target.value }))
                             }
                           />
-                        )}
+                        ) : null}
                       </div>
                     ))
                   )}
@@ -827,7 +828,7 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Fee collection"
-                description="Month-by-month history. Mark a month received once. The next month stays open until it is received."
+                description="Month-by-month history. Mark a month received once. A mistaken receipt can be reversed and stays in the history."
                 actions={
                   <Button variant="outline" onClick={() => setEditingStudent(null)}>
                     <Plus className="h-4 w-4 mr-1.5" /> Add student
@@ -877,6 +878,13 @@ export default function CoachHome() {
                 inr={inr}
                 busyKey={receiptBusy}
                 onMark={(id, name, month) => void markReceived(id, name, month)}
+                onReverse={async ({ paymentId, studentName, month, reason }) => {
+                  await api.coachReversePayment(paymentId, reason);
+                  toast.success(`${studentName}: ${month} receipt reversed`);
+                  setLedger(await api.coachFeeLedger());
+                  setFeeRevision((n) => n + 1);
+                  await refresh();
+                }}
               />
             </div>
           )}
@@ -984,7 +992,14 @@ export default function CoachHome() {
         batches={batches}
         notes={notes}
         showFees={isHeadCoach}
+        canResetParentPin={isHeadCoach}
+        feeRevision={feeRevision}
         onClose={() => setDetailId(null)}
+        onFeeReversed={async () => {
+          setFeeRevision((n) => n + 1);
+          if (isHeadCoach) setLedger(await api.coachFeeLedger());
+          await refresh();
+        }}
       />
 
       <StudentFormDialog
@@ -1036,21 +1051,74 @@ function AlertCard({
   );
 }
 
+function generateParentPin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
 function PlayerDetail({
   student,
   batches,
   notes,
   showFees,
+  canResetParentPin,
+  feeRevision,
   onClose,
+  onFeeReversed,
 }: {
   student: Student | null;
   batches: { id: string; name: string }[];
   notes: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
   showFees: boolean;
+  canResetParentPin?: boolean;
+  feeRevision: number;
   onClose: () => void;
+  onFeeReversed: () => Promise<void>;
 }) {
   const batch = batches.find((b) => b.id === student?.batchId);
   const playerNotes = notes.filter((n) => n.studentId === student?.id).slice(0, 6);
+  const [pin, setPin] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState("");
+  const [payments, setPayments] = useState<FeePayment[]>([]);
+
+  useEffect(() => {
+    setPin("");
+    setPinError("");
+    setPinBusy(false);
+  }, [student?.id]);
+
+  useEffect(() => {
+    if (!student || !showFees) {
+      setPayments([]);
+      return;
+    }
+    let cancelled = false;
+    void api.coachListPayments(student.id)
+      .then((rows) => { if (!cancelled) setPayments(rows); })
+      .catch(() => { if (!cancelled) setPayments([]); });
+    return () => { cancelled = true; };
+  }, [student, showFees, feeRevision]);
+
+  const resetParentPin = async () => {
+    if (!student) return;
+    const next = pin.replace(/\D/g, "");
+    if (!/^\d{4,8}$/.test(next)) {
+      setPinError("PIN must be 4 to 8 digits");
+      return;
+    }
+    setPinBusy(true);
+    setPinError("");
+    try {
+      const res = await api.coachResetParentPin(student.id, next);
+      toast.success(res.message);
+      setPin("");
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : "Could not reset parent PIN");
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
   return (
     <Dialog open={!!student} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[85dvh] overflow-y-auto">
@@ -1081,11 +1149,65 @@ function PlayerDetail({
                 <p>Fielding {student.scores.fielding} · Fitness {student.scores.fitness} · Temperament {student.scores.temperament}</p>
               </div>
               {showFees && (
-                <div className="rounded-lg border border-border px-3 py-2">
+                <div className="rounded-lg border border-border px-3 py-2 space-y-2">
                   <p className="text-[11px] text-muted-foreground">Fee</p>
                   <p className="font-medium">
                     {inr(student.feeAmount)} / month · {student.feeStatus === "paid" ? "Paid" : "Due"}
                   </p>
+                  <PaymentHistoryList
+                    payments={payments}
+                    canReverse
+                    onReverse={async (paymentId, reason) => {
+                      await api.coachReversePayment(paymentId, reason);
+                      toast.success("Receipt reversed. This month is unpaid again.");
+                      await onFeeReversed();
+                    }}
+                  />
+                </div>
+              )}
+              {canResetParentPin && (
+                <div className="rounded-lg border border-border px-3 py-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Reset parent PIN</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Sets the parent portal PIN for {student.parentPhone || "this WhatsApp"}. They must choose a new PIN after signing in.
+                  </p>
+                  {!student.parentPhone ? (
+                    <p className="text-xs text-destructive">Add a parent WhatsApp on the student first.</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <Input
+                          className="h-10 font-mono tracking-widest"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          placeholder="4–8 digits"
+                          maxLength={8}
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 shrink-0"
+                          onClick={() => {
+                            setPin(generateParentPin());
+                            setPinError("");
+                          }}
+                        >
+                          Generate
+                        </Button>
+                      </div>
+                      {pinError && <p className="text-xs text-destructive">{pinError}</p>}
+                      <Button
+                        type="button"
+                        className="w-full h-10 bg-primary text-primary-foreground"
+                        disabled={pinBusy || !pin}
+                        onClick={() => void resetParentPin()}
+                      >
+                        {pinBusy ? "Saving…" : "Reset parent PIN"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
               {student.medicalNotes ? (

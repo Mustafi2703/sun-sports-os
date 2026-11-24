@@ -67,6 +67,7 @@ export interface FeeLedgerMonth {
   amount: number;
   status: "paid" | "pending" | "overdue" | "upcoming";
   paidAt: string | null;
+  paymentId?: string | null;
 }
 
 export interface FeeLedgerRow {
@@ -96,6 +97,8 @@ export interface AttendanceGridDay {
   note?: string;
   closureTitle?: string;
   closureReason?: string;
+  /** weekend = Saturday or Sunday. closure = a published no-session day. */
+  offReason?: "weekend" | "closure";
 }
 
 export interface AcademyClosure {
@@ -127,6 +130,12 @@ export interface FeePayment {
   month?: string | null;
   note?: string | null;
   paidAt: string;
+  installmentId?: string | null;
+  reversedAt?: string | null;
+  reversalReason?: string | null;
+  reversedByName?: string | null;
+  reversedByRole?: string | null;
+  studentName?: string;
 }
 
 export interface AcademySnapshot {
@@ -143,7 +152,7 @@ export interface AcademySnapshot {
     overdue1Count: number;
     overdue8Count: number;
     monthlyRevenueSeries: { month: string; revenue: number }[];
-    todayAttendance?: { marked: number; present: number; absent: number };
+    todayAttendance?: { marked: number; present: number; absent: number; offDay?: boolean };
     attendanceByBatch?: { batch: string; batchId: string; w1: number; w2: number; w3: number; w4: number }[];
     recentActivity?: { type: string; text: string; time: string; tone: "success" | "warning" | "info" | "default" }[];
   };
@@ -311,13 +320,6 @@ export const api = {
     body: { name?: string; pin?: string; email?: string; coachId?: string | null; parentPhone?: string | null }
   ) => request(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
-  demoAccounts: () =>
-    request<{
-      pin: string;
-      admin: { phone: string; name: string };
-      coaches: { phone: string; name: string }[];
-      parents: { phone: string; name: string }[];
-    }>("/api/portal/demo-accounts"),
   authMe: (token?: string) =>
     request<AuthUser>("/api/auth/me", {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -378,6 +380,17 @@ export const api = {
     request<Student>(`/api/portal/coach/students/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   coachDeleteStudent: (id: string) =>
     request<{ ok: boolean }>(`/api/portal/coach/students/${id}`, { method: "DELETE" }),
+  coachResetParentPin: (studentId: string, pin: string) =>
+    request<{
+      ok: boolean;
+      parentPhone: string;
+      parentName: string;
+      mustChangePin: boolean;
+      message: string;
+    }>(`/api/portal/coach/students/${studentId}/reset-parent-pin`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
   coachEnrollFeePackage: (body: {
     studentId: string;
     packageId?: string;
@@ -500,6 +513,18 @@ export const api = {
       "/api/portal/coach/fee-receipts",
       { method: "POST", body: JSON.stringify(body) }
     ),
+  coachListPayments: (studentId: string) =>
+    request<FeePayment[]>(`/api/portal/coach/payments?studentId=${encodeURIComponent(studentId)}`),
+  reversePayment: (id: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/payments/${id}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  coachReversePayment: (id: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/portal/coach/payments/${id}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   updateFeeInstallment: (
     id: string,
     body: { status?: string; markPaid?: boolean; method?: string; amount?: number; daysOverdue?: number; note?: string }
@@ -522,7 +547,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/payments/${id}`, { method: "DELETE" }),
   listAttendance: (q: { date?: string; batchId?: string; studentId?: string }) => {
     const qs = "?" + new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
-    return request<{ id: string; studentId: string; status: string; date: string }[]>(`/api/attendance${qs}`);
+    return request<{ id: string; studentId: string; status: string; date: string; note?: string | null }[]>(`/api/attendance${qs}`);
   },
   attendanceGrid: (studentId: string, days = 30) =>
     request<{ studentId: string; days: number; grid: AttendanceGridDay[] }>(
@@ -540,18 +565,58 @@ export const api = {
   deleteEnquiry: (id: string) =>
     request<{ ok: boolean }>(`/api/enquiries/${id}`, { method: "DELETE" }),
   listEnquiries: () => request<Record<string, unknown>[]>("/api/enquiries"),
-  importExcel: async (file: File, mode: "upsert" | "replace" = "upsert") => {
+  previewExcel: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/api/import/excel/preview`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Could not read the workbook");
+    return res.json() as Promise<ExcelImportPreview>;
+  },
+  importExcel: async (file: File, mode: "upsert" | "replace", confirm: string) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("mode", mode);
+    fd.append("confirm", confirm);
     const res = await fetch(`${API_BASE}/api/import/excel`, {
       method: "POST",
       body: fd,
       headers: authHeaders(),
     });
-    if (!res.ok) throw new Error("Import failed");
-    return res.json();
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((body as { error?: string }).error || "Import failed");
+    return body as {
+      ok: boolean;
+      imported: number;
+      students: number;
+      coaches: number;
+      batches: number;
+      backup?: unknown;
+    };
   },
+};
+
+export type ExcelImportPreview = {
+  replaceAllowed: boolean;
+  upsertConfirm: string;
+  replaceConfirm: string;
+  coaches: { create: number; update: number };
+  batches: { create: number; update: number };
+  students: { create: number; update: number; unchanged: number };
+  studentUpdates: { name: string; fields: string[] }[];
+  replaceWouldDelete: {
+    attendance: number;
+    payments: number;
+    notes: number;
+    enrollments: number;
+    installments: number;
+    students: number;
+    batches: number;
+    coaches: number;
+  };
 };
 
 export const initialsColor = (name: string) => {
