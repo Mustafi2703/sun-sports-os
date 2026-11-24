@@ -234,6 +234,25 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
+function parentImportPath(mode: "admin" | "coach", action: "preview" | "apply") {
+  return mode === "admin" ? `/api/parents/import/${action}` : `/api/portal/coach/parents/import/${action}`;
+}
+
+async function uploadForm<T>(path: string, file: File, fields: Record<string, string>): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  for (const [key, value] of Object.entries(fields)) body.append(key, value);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body,
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((payload as { error?: string }).error || `API ${res.status}`);
+  return payload as T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
@@ -388,6 +407,22 @@ export const api = {
       mustChangePin: boolean;
       message: string;
     }>(`/api/portal/coach/students/${studentId}/reset-parent-pin`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+  resetParentPinForStudent: (studentId: string, pin: string) =>
+    request<{
+      ok: boolean;
+      parentPhone: string;
+      parentName: string;
+      mustChangePin: boolean;
+      message: string;
+    }>(`/api/students/${studentId}/reset-parent-pin`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+  resetParentUserPin: (userId: string, pin: string) =>
+    request<{ ok: boolean; mustChangePin: boolean; message: string }>(`/api/users/${userId}/reset-pin`, {
       method: "POST",
       body: JSON.stringify({ pin }),
     }),
@@ -565,6 +600,25 @@ export const api = {
   deleteEnquiry: (id: string) =>
     request<{ ok: boolean }>(`/api/enquiries/${id}`, { method: "DELETE" }),
   listEnquiries: () => request<Record<string, unknown>[]>("/api/enquiries"),
+  previewParentImport: (mode: "admin" | "coach", text: string) =>
+    request<ParentImportPreview>(parentImportPath(mode, "preview"), {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+  previewParentImportFile: async (mode: "admin" | "coach", file: File) => {
+    const body = await uploadForm<ParentImportPreview>(parentImportPath(mode, "preview"), file, {});
+    return body;
+  },
+  applyParentImport: (mode: "admin" | "coach", body: { text: string; confirm: string; include: number[] }) =>
+    request<ParentImportApplyResult>(parentImportPath(mode, "apply"), {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  applyParentImportFile: (mode: "admin" | "coach", file: File, confirm: string, include: number[]) =>
+    uploadForm<ParentImportApplyResult>(parentImportPath(mode, "apply"), file, {
+      confirm,
+      include: JSON.stringify(include),
+    }),
   previewExcel: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -597,6 +651,41 @@ export const api = {
       backup?: unknown;
     };
   },
+};
+
+export type ParentImportPreview = {
+  confirm: string;
+  columns: string[];
+  counts: { create: number; update: number; unchanged: number; problem: number };
+  rows: {
+    index: number;
+    status: "create" | "update" | "unchanged" | "problem";
+    selectable: boolean;
+    suggested: boolean;
+    studentName: string;
+    parentName: string;
+    phone: string;
+    problems: string[];
+    match: { studentId: string; studentName: string; confidence: number; label: string } | null;
+    candidates: { studentId: string; studentName: string; confidence: number; label: string }[];
+    diff: {
+      parentName: { before: string; after: string };
+      parentPhone: { before: string; after: string };
+      pin: "set" | "unchanged";
+      parentRecord: "create" | "update" | "unchanged";
+      note: string;
+    } | null;
+  }[];
+};
+
+export type ParentImportApplyResult = {
+  ok: boolean;
+  created: number;
+  updated: number;
+  linked: number;
+  unchanged: number;
+  skipped: { index: number; studentName: string; problems: string[] }[];
+  logId: string | null;
 };
 
 export type ExcelImportPreview = {

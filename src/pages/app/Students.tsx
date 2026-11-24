@@ -110,6 +110,11 @@ const Students = () => {
   };
 
   const saveStudent = async (values: StudentFormValues) => {
+    const parentPin = values.parentPin.replace(/\D/g, "");
+    if (parentPin && !/^\d{4,6}$/.test(parentPin)) {
+      toast.error("Parent PIN must be 4 to 6 digits");
+      return;
+    }
     setBusy(true);
     try {
       const monthly = parseRupees(values.feeAmount, 15000);
@@ -120,6 +125,7 @@ const Students = () => {
         parentName: values.parentName,
         parentPhone: values.parentPhone,
         parentEmail: values.parentEmail || undefined,
+        ...(parentPin ? { parentPin } : {}),
         batchId: values.batchId || undefined,
         role: values.role,
         feeAmount: monthly,

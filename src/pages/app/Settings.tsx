@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
 import { type Coach, type ExcelImportPreview, type Portal } from "@/lib/api";
+import { StartingPinBox } from "@/components/app/StartingPinBox";
 
 type PortalUser = {
   id: string;
@@ -39,8 +40,9 @@ const Settings = () => {
     phone: "",
     email: "",
     role: "parent" as Portal,
-    pin: "1234",
+    pin: "",
   });
+  const [pinUser, setPinUser] = useState<PortalUser | null>(null);
   const [authInfo, setAuthInfo] = useState<{
     emailConfigured?: boolean;
     smsConfigured: boolean;
@@ -163,8 +165,17 @@ const Settings = () => {
 
   const saveUser = async () => {
     const phone = userForm.phone.replace(/\D/g, "").slice(-10);
+    const pin = userForm.pin.replace(/\D/g, "");
     if (phone.length < 10 || !userForm.name.trim()) {
       toast.error("Name and 10-digit phone required");
+      return;
+    }
+    if (pin && userForm.role === "parent" && !/^\d{4,6}$/.test(pin)) {
+      toast.error("Parent PIN must be 4 to 6 digits");
+      return;
+    }
+    if (pin && userForm.role !== "parent" && !/^\d{4,8}$/.test(pin)) {
+      toast.error("PIN must be 4 to 8 digits");
       return;
     }
     setBusy(true);
@@ -174,11 +185,11 @@ const Settings = () => {
         role: userForm.role,
         name: userForm.name.trim(),
         email: userForm.email.trim() || undefined,
-        pin: userForm.pin || undefined,
+        pin: pin || undefined,
       });
       toast.success("Portal user created");
       setUserOpen(false);
-      setUserForm({ name: "", phone: "", email: "", role: "parent", pin: "1234" });
+      setUserForm({ name: "", phone: "", email: "", role: "parent", pin: "" });
       await loadUsers();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create user");
@@ -262,9 +273,16 @@ const Settings = () => {
                   <p className="text-xs text-muted-foreground capitalize">{u.role} · {u.phone}</p>
                   <p className="text-xs text-muted-foreground truncate">{u.email || "No email for PIN reset"}</p>
                 </div>
-                <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={() => void removeUser(u)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <div className="flex shrink-0">
+                  {u.role === "parent" && (
+                    <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setPinUser(u)}>
+                      Set starting PIN
+                    </Button>
+                  )}
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={() => void removeUser(u)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -378,6 +396,24 @@ const Settings = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={pinUser !== null} onOpenChange={(open) => !open && setPinUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Starting PIN for {pinUser?.name}</DialogTitle>
+          </DialogHeader>
+          {pinUser && (
+            <StartingPinBox
+              description={`Parent login ${pinUser.phone}. This replaces the current PIN and asks them to choose a new one after signing in.`}
+              onSave={async (pin) => {
+                const res = await api.resetParentUserPin(pinUser.id, pin);
+                toast.success(res.message);
+                setPinUser(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={userOpen} onOpenChange={setUserOpen}>
         <DialogContent>
           <DialogHeader>
@@ -406,9 +442,19 @@ const Settings = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5"><Label className="text-xs">Backup PIN</Label><Input value={userForm.pin} onChange={(e) => setUserForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))} /></div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{userForm.role === "parent" ? "Starting PIN (optional)" : "PIN (optional)"}</Label>
+              <Input
+                value={userForm.pin}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={userForm.role === "parent" ? 6 : 8}
+                placeholder={userForm.role === "parent" ? "4 to 6 digits" : "4 to 8 digits"}
+                onChange={(e) => setUserForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))}
+              />
+            </div>
             <p className="text-[11px] text-muted-foreground">
-              Parents need a student with this WhatsApp first. Coaches need a coach row with this phone first. Email is required for Forgot PIN.
+              Leave the PIN blank to use the shared starting PIN. Parents need a student with this WhatsApp first, and they choose their own PIN at first sign-in. Coaches need a coach row with this phone first. Bulk parent import is on Parents. Email is required for Forgot PIN.
             </p>
           </div>
           <DialogFooter>

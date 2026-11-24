@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { MessageCircle, Phone, Calendar, Pencil, Trash2, Loader2 } from "lucide-react";
 import { AttendanceDayGrid, AttendanceLegend } from "@/components/app/AttendanceCalendar";
 import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
+import { StartingPinBox } from "@/components/app/StartingPinBox";
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -176,6 +177,16 @@ export const StudentDetailModal = ({
                   days={grid.length ? grid : Array.from({ length: 30 }, (_, i) => ({ date: String(i), status: "none" as const }))}
                 />
                 <AttendanceLegend />
+              </section>
+
+              <section className="md:col-span-2">
+                <StartingPinBox
+                  description={`Sets a starting PIN for ${student.parentPhone || "this parent"}. They must choose a new PIN after signing in.`}
+                  onSave={async (pin) => {
+                    const res = await api.resetParentPinForStudent(student.id, pin);
+                    toast.success(res.message);
+                  }}
+                />
               </section>
 
               <section className="md:col-span-2">

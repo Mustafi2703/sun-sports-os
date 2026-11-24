@@ -2,15 +2,38 @@ import { prisma } from "./prisma.js";
 import { getDefaultPin, hashPin, normalizePhone } from "./auth.js";
 import { normalizeEmail } from "./email.js";
 
-/** Create/update a single parent portal user for a phone (PIN set only on create). */
+/** Blank means no PIN was supplied. A supplied value must be 4 to 6 digits. */
+export function optionalInitialPin(raw: unknown): { pin?: string; error?: string } {
+  if (raw == null) return {};
+  const pin = String(raw).trim();
+  if (!pin) return {};
+  if (!/^\d{4,6}$/.test(pin)) return { error: "PIN must be 4 to 6 digits" };
+  return { pin };
+}
+
+/**
+ * Create or update one parent login.
+ * initialPin, when set, is a starting PIN and forces a change on next sign-in.
+ * Omit it to leave an existing PIN alone. A new login with no PIN uses the shared starting PIN
+ * and must be changed on first sign-in.
+ */
 export async function ensureParentUser(
   parentPhone: string | null | undefined,
   parentName?: string | null,
-  parentEmail?: string | null
+  parentEmail?: string | null,
+  initialPin?: string | null
 ) {
   const phone = normalizePhone(parentPhone);
   if (!phone || phone.length < 10) return null;
   const email = normalizeEmail(parentEmail);
+  let pinToSet: string | null = null;
+  if (initialPin != null && String(initialPin).trim()) {
+    const pin = String(initialPin).trim();
+    if (!/^\d{4,6}$/.test(pin)) {
+      throw new Error("PIN must be 4 to 6 digits");
+    }
+    pinToSet = pin;
+  }
   const existing = await prisma.user.findUnique({
     where: { phone_role: { phone, role: "parent" } },
   });
@@ -18,10 +41,11 @@ export async function ensureParentUser(
     return prisma.user.create({
       data: {
         phone,
-        pinHash: await hashPin(getDefaultPin()),
+        pinHash: await hashPin(pinToSet || getDefaultPin()),
         role: "parent",
         name: parentName || "Parent",
         parentPhone: phone,
+        mustChangePin: true,
         ...(email ? { email } : {}),
       },
     });
@@ -32,8 +56,39 @@ export async function ensureParentUser(
       name: parentName || existing.name || "Parent",
       parentPhone: phone,
       ...(parentEmail !== undefined ? { email } : {}),
+      ...(pinToSet
+        ? { pinHash: await hashPin(pinToSet), mustChangePin: true, pinChangedAt: null }
+        : {}),
     },
   });
+}
+
+/** Admin or head coach sets one parent's starting PIN. The PIN is not returned. */
+export async function resetParentPinForStudent(studentId: string, pin: string) {
+  const cleaned = String(pin || "").replace(/\D/g, "");
+  if (!/^\d{4,6}$/.test(cleaned)) {
+    return { status: 400 as const, error: "PIN must be 4 to 6 digits" };
+  }
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
+  if (!student) return { status: 404 as const, error: "Student not found" };
+  const phone = normalizePhone(student.parentPhone);
+  if (!phone || phone.length < 10) {
+    return { status: 400 as const, error: "This student has no parent WhatsApp on file" };
+  }
+  const parent = await ensureParentUser(phone, student.parentName, student.parentEmail, cleaned);
+  if (!parent) {
+    return { status: 400 as const, error: "Could not find or create the parent portal login" };
+  }
+  return {
+    status: 200 as const,
+    body: {
+      ok: true,
+      parentPhone: phone,
+      parentName: parent.name,
+      mustChangePin: true,
+      message: "Starting PIN saved. The parent must choose a new PIN after signing in.",
+    },
+  };
 }
 
 /** True if any student is linked to this parent phone (normalized). */
@@ -65,12 +120,13 @@ export async function syncParentAccess(opts: {
   newPhone?: string | null;
   parentName?: string | null;
   parentEmail?: string | null;
+  initialPin?: string | null;
 }) {
   const neu = normalizePhone(opts.newPhone);
   const old = normalizePhone(opts.oldPhone);
 
   if (neu && neu.length >= 10) {
-    await ensureParentUser(neu, opts.parentName, opts.parentEmail);
+    await ensureParentUser(neu, opts.parentName, opts.parentEmail, opts.initialPin);
   }
 
   if (old && old.length >= 10 && old !== neu) {

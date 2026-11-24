@@ -16,6 +16,14 @@ export function RequireAuth({
 
   // While validating an existing token, show spinner — but if we already have
   // a matching user (fresh login), let them through immediately.
+  if (role === "parent" && loading) {
+    return (
+      <div className="app-shell min-h-dvh flex items-center justify-center text-muted-foreground text-sm safe-pt safe-pb">
+        Checking session…
+      </div>
+    );
+  }
+
   if (loading && !(user?.role === role && token)) {
     return (
       <div className="app-shell min-h-dvh flex items-center justify-center text-muted-foreground text-sm safe-pt safe-pb">

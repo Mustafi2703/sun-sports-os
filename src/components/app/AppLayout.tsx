@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  Home, Users, Layers, CreditCard, CalendarCheck, TrendingUp,
+  Home, Users, Contact, Layers, CreditCard, CalendarCheck, TrendingUp,
   MessageCircle, BarChart3, Settings, Bell, Menu, X, MoreHorizontal, HelpCircle, Trophy, LogOut, ClipboardList,
   AlertTriangle,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { to: "/app", label: "Dashboard", icon: Home, end: true },
   { to: "/app/students", label: "Students", icon: Users },
+  { to: "/app/parents", label: "Parents", icon: Contact },
   { to: "/app/batches", label: "Batches", icon: Layers },
   { to: "/app/coaches", label: "Coaches", icon: ClipboardList },
   { to: "/app/fees", label: "Fee Management", icon: CreditCard },

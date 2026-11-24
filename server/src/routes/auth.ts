@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import {
   normalizePhone,
+  parentNeedsPinChange,
   portalToRole,
   requireAuth,
   hashPin,
@@ -45,6 +46,21 @@ function toAuthUser(user: {
     parentPhone: user.parentPhone,
     mustChangePin: Boolean(user.mustChangePin),
   };
+}
+
+async function presentAuthUser(user: {
+  id: string;
+  phone: string;
+  role: string;
+  name: string;
+  coachId: string | null;
+  parentPhone: string | null;
+  mustChangePin: boolean;
+  pinChangedAt: Date | null;
+  pinHash: string;
+}) {
+  const mustChangePin = await parentNeedsPinChange(user);
+  return toAuthUser({ ...user, mustChangePin });
 }
 
 function loginResponse(user: ReturnType<typeof toAuthUser>) {
@@ -189,7 +205,7 @@ authRouter.post("/verify-otp", async (req, res) => {
     const check = await verifyOtpCode(phone, portal, otp);
     if (!check.ok) return res.status(401).json({ error: check.error });
 
-    res.json(loginResponse(toAuthUser(user)));
+    res.json(loginResponse(await presentAuthUser(user)));
   } catch (e) {
     console.error("verify-otp error:", e);
     res.status(500).json({ error: "OTP verification failed — try again" });
@@ -222,7 +238,7 @@ authRouter.post("/login", async (req, res) => {
     const ok = await verifyPin(pin, user.pinHash);
     if (!ok) return res.status(401).json({ error: "Invalid phone or PIN" });
 
-    res.json(loginResponse(toAuthUser(user)));
+    res.json(loginResponse(await presentAuthUser(user)));
   } catch (e) {
     console.error("Login error:", e);
     res.status(500).json({ error: "Login failed — try again" });
@@ -317,7 +333,7 @@ authRouter.post("/change-pin", requireAuth(), async (req, res) => {
       where: { id: user.id },
       data: { pinHash: await hashPin(newPin), mustChangePin: false, pinChangedAt: new Date() },
     });
-    res.json({ ok: true, user: toAuthUser(updated) });
+    res.json({ ok: true, user: await presentAuthUser(updated) });
   } catch (e) {
     console.error("change-pin error:", e);
     res.status(500).json({ error: "Could not change PIN — try again" });
@@ -327,5 +343,5 @@ authRouter.post("/change-pin", requireAuth(), async (req, res) => {
 authRouter.get("/me", requireAuth(), async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
   if (!user) return res.status(401).json({ error: "User not found" });
-  res.json(toAuthUser(user));
+  res.json(await presentAuthUser(user));
 });
