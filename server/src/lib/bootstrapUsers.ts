@@ -4,19 +4,21 @@ import { normalizeEmail } from "./email.js";
 
 /**
  * Ensures portal users exist for admin, every coach with a phone,
- * and every distinct parent phone on students. Idempotent.
- * Does NOT reset existing PIN hashes (preserves custom PINs).
+ * and every distinct parent phone on students.
+ * Does NOT reset existing PIN hashes.
+ * By default, existing users, phones, and emails are left unchanged.
+ * syncExisting rewrites names and emails and normalizes stored phones.
  */
-export async function bootstrapPortalUsers() {
-  const pin = getDefaultPin();
-  const pinHash = await hashPin(pin);
+export async function bootstrapPortalUsers(options?: { syncExisting?: boolean }) {
+  const syncExisting = options?.syncExisting === true;
+  const pinHash = await hashPin(getDefaultPin());
 
-  // Normalize messy parent phones on students so login matching works
   const allStudents = await prisma.student.findMany({
     where: { parentPhone: { not: null } },
     select: { id: true, parentPhone: true },
   });
   for (const s of allStudents) {
+    if (!syncExisting) continue;
     const normalized = normalizePhone(s.parentPhone);
     if (normalized && normalized.length >= 10 && normalized !== s.parentPhone) {
       await prisma.student.update({
@@ -30,7 +32,7 @@ export async function bootstrapPortalUsers() {
   for (const c of coaches) {
     const phone = normalizePhone(c.phone);
     if (!phone || phone.length < 10) continue;
-    if (c.phone !== phone) {
+    if (syncExisting && c.phone !== phone) {
       await prisma.coach.update({ where: { id: c.id }, data: { phone } });
     }
   }
@@ -46,10 +48,12 @@ export async function bootstrapPortalUsers() {
       name: "Sun Sports Team",
       ...(adminEmail ? { email: adminEmail } : {}),
     },
-    update: {
-      name: "Sun Sports Team",
-      ...(adminEmail ? { email: adminEmail } : {}),
-    },
+    update: syncExisting
+      ? {
+          name: "Sun Sports Team",
+          ...(adminEmail ? { email: adminEmail } : {}),
+        }
+      : {},
   });
 
   for (const c of await prisma.coach.findMany()) {
@@ -66,11 +70,13 @@ export async function bootstrapPortalUsers() {
         coachId: c.id,
         ...(email ? { email } : {}),
       },
-      update: {
-        name: c.name,
-        coachId: c.id,
-        ...(email ? { email } : {}),
-      },
+      update: syncExisting
+        ? {
+            name: c.name,
+            coachId: c.id,
+            ...(email ? { email } : {}),
+          }
+        : {},
     });
   }
 
@@ -109,6 +115,7 @@ export async function bootstrapPortalUsers() {
       });
       continue;
     }
+    if (!syncExisting) continue;
     await prisma.user.update({
       where: { id: existing.id },
       data: {
@@ -123,6 +130,6 @@ export async function bootstrapPortalUsers() {
   console.log(
     "Portal users ready:",
     counts.map((c) => `${c.role}=${c._count}`).join(", "),
-    `(shared PIN ${pin}; change PIN is inside the portal)`
+    syncExisting ? "(existing names refreshed, PINs unchanged)" : "(existing users left unchanged)"
   );
 }

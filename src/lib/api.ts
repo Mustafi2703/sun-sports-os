@@ -318,13 +318,6 @@ export const api = {
     body: { name?: string; pin?: string; email?: string; coachId?: string | null; parentPhone?: string | null }
   ) => request(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
-  demoAccounts: () =>
-    request<{
-      pin: string;
-      admin: { phone: string; name: string };
-      coaches: { phone: string; name: string }[];
-      parents: { phone: string; name: string }[];
-    }>("/api/portal/demo-accounts"),
   authMe: (token?: string) =>
     request<AuthUser>("/api/auth/me", {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -570,18 +563,58 @@ export const api = {
   deleteEnquiry: (id: string) =>
     request<{ ok: boolean }>(`/api/enquiries/${id}`, { method: "DELETE" }),
   listEnquiries: () => request<Record<string, unknown>[]>("/api/enquiries"),
-  importExcel: async (file: File, mode: "upsert" | "replace" = "upsert") => {
+  previewExcel: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/api/import/excel/preview`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Could not read the workbook");
+    return res.json() as Promise<ExcelImportPreview>;
+  },
+  importExcel: async (file: File, mode: "upsert" | "replace", confirm: string) => {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("mode", mode);
+    fd.append("confirm", confirm);
     const res = await fetch(`${API_BASE}/api/import/excel`, {
       method: "POST",
       body: fd,
       headers: authHeaders(),
     });
-    if (!res.ok) throw new Error("Import failed");
-    return res.json();
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((body as { error?: string }).error || "Import failed");
+    return body as {
+      ok: boolean;
+      imported: number;
+      students: number;
+      coaches: number;
+      batches: number;
+      backup?: unknown;
+    };
   },
+};
+
+export type ExcelImportPreview = {
+  replaceAllowed: boolean;
+  upsertConfirm: string;
+  replaceConfirm: string;
+  coaches: { create: number; update: number };
+  batches: { create: number; update: number };
+  students: { create: number; update: number; unchanged: number };
+  studentUpdates: { name: string; fields: string[] }[];
+  replaceWouldDelete: {
+    attendance: number;
+    payments: number;
+    notes: number;
+    enrollments: number;
+    installments: number;
+    students: number;
+    batches: number;
+    coaches: number;
+  };
 };
 
 export const initialsColor = (name: string) => {

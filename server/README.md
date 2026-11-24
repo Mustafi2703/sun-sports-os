@@ -8,9 +8,12 @@ Production start applies committed migrations with `prisma migrate deploy`, then
 
 Set these in the environment. Names only. Do not commit values.
 
-Required:
+Required in production:
 
-- `DATABASE_URL` - PostgreSQL connection string Prisma uses
+- `DATABASE_URL` - PostgreSQL connection string
+- `JWT_SECRET` - long random string. If it is missing, or still the old development fallback, the process exits before it listens. Set this on Railway before the new image stays up. Existing sign-in sessions stop working and people sign in again.
+
+If `CORS_ORIGINS` is unset in production, the API allows `https://sun-sports-os.vercel.app`. If you set `CORS_ORIGINS`, include that origin or the live site cannot call the API.
 
 Runtime names the API also reads:
 
@@ -68,8 +71,21 @@ The API listens on port 4000 unless `PORT` is set. Health check: `GET /api/healt
 | `npm run db:seed` | Manual seed. Inserts demo roster only when students, coaches, and batches are all empty. |
 | `npm run db:reset` | Local only. Drops the database, reapplies migrations, and seeds. Refuses when `NODE_ENV=production`. |
 | `npm run db:baseline` | One-time. Marks the baseline migration applied without running SQL. Requires `BASELINE_CONFIRM=yes`. |
+| `npm run db:maintain -- <action>` | Dry-run maintenance. Writes only with `MAINTAIN_CONFIRM=yes`. |
 | `npm run build` | Typecheck and compile `src/` to `dist/`. |
-| `npm run start:prod` | Same path Railway uses: `migrate deploy`, then the API. |
+| `npm run start:prod` | Same path Railway uses: `migrate deploy`, then the API. No row changes on boot. |
+
+PowerShell (from `server/`):
+
+```powershell
+$env:DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/sunsports"
+npm run db:setup
+$env:BASELINE_CONFIRM="yes"; npm run db:baseline
+npm run db:maintain -- cleanup-demo-rows
+$env:MAINTAIN_CONFIRM="yes"; npm run db:maintain -- cleanup-demo-rows
+```
+
+bash equivalents use `NAME=value npm run ...` on the same line. Do not put those assignments in PowerShell.
 
 `prisma migrate dev` is for local development. Do not point it at production. If it reports drift it may offer to reset the database.
 
@@ -222,16 +238,38 @@ ORDER BY p."paidAt" DESC;
 
 `server/scripts/reverse-one-payment.sql` is the SQL version of the same one-id update. Edit the payment id, the reason, and `confirm := 'yes'`, then run the file in one session. It stops if the reversal columns are missing. It does not add those columns itself.
 
-## Risky behavior left unchanged
+## Boot does not change rows
 
-These are not part of the migration setup. They can still change or delete academy data. They were left as they are on purpose.
+`scripts/start-prod.ts` runs `prisma migrate deploy` and then the API. The listen path does not delete enquiries, delete payments, rewrite fee packages, refresh portal users, or recompute attendance.
 
-1. Excel import replace mode. `POST /api/import/excel` with form field `mode=replace` (admin auth) deletes every attendance record, fee payment, coach note, student, batch, and coach, then imports the workbook. Student deletes cascade to fee enrollments and installments. The Settings screen currently always sends `mode=upsert`, which does not wipe those tables. Upsert still overwrites dob, age, parent fields, role, join date, medical notes, and batch for a student whose name matches. The replace path is still live on the API for any client that posts it.
+Those jobs are `npm run db:maintain -- <action>`. With no confirm variable the command only prints what it would change.
 
-2. Startup deletes in `src/index.ts`. Every boot deletes enquiries whose parent name is `Sample Parent`, and fee payments whose note is `Monthly HP fee`. A real payment stored with that note is removed on the next restart. This is not the seed script.
+| Action | What a confirmed run does |
+| --- | --- |
+| `cleanup-demo-rows` | Deletes enquiries named Sample Parent and payments whose note is Monthly HP fee |
+| `sync-fee-packages` | Rewrites the 1, 3, 6, and 12 month package amounts to the built-in prices |
+| `sync-portal-users` | Creates missing portal users and refreshes names and emails. Does not reset PINs |
+| `head-coach-flags` | Sets isHeadCoach where the name contains Harry or the specialty contains Head Coach |
+| `recompute-attendance` | Sets each student's attendance percent from saved marks |
 
-3. Startup fee packages. `ensureDefaultFeePackages()` runs on every boot and overwrites the name, description, monthly amount, total, and active flag of the earliest fee package for 1, 3, 6, and 12 months. A custom price on those packages is reset.
+PowerShell write:
 
-4. Startup portal users. `bootstrapPortalUsers()` runs on every boot. It does not reset PIN hashes. It does rewrite the admin user's name, updates coach and parent user names and emails, and normalizes stored phone strings on students and coaches.
+```powershell
+$env:MAINTAIN_CONFIRM="yes"; npm run db:maintain -- cleanup-demo-rows
+```
 
-5. Head coach flag. `ensureHeadCoachFlags()` sets `isHeadCoach` on coaches whose name contains "Harry" or whose specialty contains "Head Coach" when the flag is still false.
+On a production machine also set `ALLOW_MAINTAIN=yes` for that command only. Do not set it on the Railway service.
+
+Opening Fees still creates a missing 1, 3, 6, or 12 month package. It does not change a package that already exists. `npm run db:seed` does the same on an empty roster, then creates demo portal users. An empty database does not need the old startup rewrites.
+
+## Excel import
+
+Admin only.
+
+1. `POST /api/import/excel/preview` reads the file and writes nothing.
+2. Upsert applies only when the form field `confirm` is `APPLY IMPORT`. Empty sheet cells do not blank existing student fields, and an existing student's batch is left as it is. Attendance rows are not deleted.
+3. Replace also requires `confirm` of `REPLACE ROSTER`. In production it is rejected unless `ALLOW_EXCEL_REPLACE=true`. Before it deletes, the API returns a JSON backup of attendance, payments, notes, enrollments, installments, students, batches, and coaches. Settings downloads that file.
+
+## Secrets in git history
+
+Deleting `docs/TEAM_TEST_CREDENTIALS.md` and replacing the seed and Excel template removes those values from the current tree. It does not remove them from older commits. Treat the phones and the shared PIN in that history as exposed. Prefer a private repository, and change portal PINs.

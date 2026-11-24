@@ -21,10 +21,9 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
-RUN chmod +x scripts/start-prod.sh scripts/baseline-existing.sh scripts/reset-local.sh
 
 ENV NODE_ENV=production
 EXPOSE 4000
 
 # migrate deploy applies committed migrations only. It does not db push and it does not seed.
-CMD ["./scripts/start-prod.sh"]
+CMD ["npx", "tsx", "scripts/start-prod.ts"]

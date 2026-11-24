@@ -98,11 +98,11 @@ async function run() {
     assert("Seed has Sun Sports academy", snapshot?.academyName === "Sun Sports", snapshot?.academyName);
     assert("Seed has ≥12 students", (snapshot?.students?.length ?? 0) >= 12, String(snapshot?.students?.length));
     assert("Seed has High Performance batch", snapshot?.batches?.some((b) => /high performance/i.test(b.name)) ?? false);
-    assert("Seed has Harry Sir coach", snapshot?.coaches?.some((c) => /harry/i.test(c.name)) ?? false);
+    assert("Seed has Demo Head Coach", snapshot?.coaches?.some((c) => /demo head coach/i.test(c.name)) ?? false);
   }
 
-  // Parent portal login — prefer a parent phone that is not also reserved issues: take Ronak/Ayaan if present
-  const preferred = snapshot.students.find((s) => /ayaan/i.test(s.name)) || snapshot.students.find((s) => s.parentPhone);
+  // Parent portal login uses the first demo student when present.
+  const preferred = snapshot.students.find((s) => /demo student 01/i.test(s.name)) || snapshot.students.find((s) => s.parentPhone);
   const parentPhone = preferred?.parentPhone || "";
   let parentToken = "";
   {
@@ -124,7 +124,7 @@ async function run() {
   }
 
   // Coach portal
-  const coachPhone = snapshot.coaches.find((c) => /harry/i.test(c.name))?.phone || snapshot.coaches[0]?.phone || "";
+  const coachPhone = snapshot.coaches.find((c) => /demo head coach/i.test(c.name))?.phone || snapshot.coaches[0]?.phone || "";
   let coachToken = "";
   {
     const r = await req("/api/auth/login", {

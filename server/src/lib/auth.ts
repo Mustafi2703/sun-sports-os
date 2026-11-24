@@ -31,7 +31,25 @@ declare global {
   }
 }
 
-const JWT_SECRET = () => process.env.JWT_SECRET || "sun-sports-dev-secret-change-me";
+const DEV_JWT_SECRET = "sun-sports-dev-secret-change-me";
+
+export function assertProductionSecrets() {
+  if (process.env.NODE_ENV !== "production") return;
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret || secret === DEV_JWT_SECRET) {
+    console.error("Refusing to start: set JWT_SECRET to a long random value. The development fallback is not allowed when NODE_ENV=production.");
+    process.exit(1);
+  }
+}
+
+const JWT_SECRET = () => {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET is required in production");
+  }
+  return DEV_JWT_SECRET;
+};
 const DEFAULT_PIN = () => process.env.DEFAULT_PIN || "1234";
 
 /** Normalize any phone-ish string to last 10 digits for unique matching. */

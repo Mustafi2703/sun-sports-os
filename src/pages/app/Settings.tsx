@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Upload, Plus, Pencil, Trash2, CheckCircle2 } from "lucide-react";
+import { Download, Upload, Plus, Pencil, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAcademy } from "@/context/AcademyContext";
 import { toast } from "sonner";
-import type { Coach, Portal } from "@/lib/api";
+import { type Coach, type ExcelImportPreview, type Portal } from "@/lib/api";
 
 type PortalUser = {
   id: string;
@@ -26,6 +26,10 @@ const Settings = () => {
   const { academyName, students, coaches, batches, api, refresh, error } = useAcademy();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<ExcelImportPreview | null>(null);
+  const [replaceRoster, setReplaceRoster] = useState(false);
+  const [replacePhrase, setReplacePhrase] = useState("");
   const [coachEdit, setCoachEdit] = useState<Coach | null | undefined>(undefined);
   const [coachForm, setCoachForm] = useState({ name: "", phone: "", specialty: "", email: "" });
   const [users, setUsers] = useState<PortalUser[]>([]);
@@ -68,12 +72,49 @@ const Settings = () => {
       .catch(() => undefined);
   }, [api]);
 
-  const onUpload = async (file: File | undefined) => {
+  const onPickWorkbook = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
+    setImportFile(file);
+    setReplaceRoster(false);
+    setReplacePhrase("");
     try {
-      const result = await api.importExcel(file, "upsert");
-      toast.success(`Imported — ${result.students} students, ${result.coaches} coaches`);
+      setImportPreview(await api.previewExcel(file));
+    } catch (e) {
+      setImportPreview(null);
+      toast.error(e instanceof Error ? e.message : "Could not read the workbook");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyImport = async () => {
+    if (!importFile || !importPreview) return;
+    const mode = replaceRoster ? "replace" : "upsert";
+    if (mode === "replace" && replacePhrase.trim() !== importPreview.replaceConfirm) {
+      toast.error(`Type ${importPreview.replaceConfirm} to replace the roster.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.importExcel(
+        importFile,
+        mode,
+        mode === "replace" ? importPreview.replaceConfirm : importPreview.upsertConfirm
+      );
+      if (result.backup) {
+        const blob = new Blob([JSON.stringify(result.backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `roster-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      toast.success(`Imported: ${result.students} students, ${result.coaches} coaches`);
+      setImportFile(null);
+      setImportPreview(null);
+      setReplacePhrase("");
       await refresh();
       await loadUsers();
     } catch (e) {
@@ -236,18 +277,53 @@ const Settings = () => {
             <span className="text-foreground font-medium">{batches.length}</span> batches ·{" "}
             <span className="text-foreground font-medium">{coaches.length}</span> coaches.
           </p>
-          <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => void onUpload(e.target.files?.[0])} />
+          <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => void onPickWorkbook(e.target.files?.[0])} />
           <div className="flex flex-wrap gap-2 pt-1">
             <Button size="sm" disabled={busy} className="bg-primary text-primary-foreground" onClick={() => inputRef.current?.click()}>
-              <Upload className="h-3.5 w-3.5 mr-1.5" /> {busy ? "Importing…" : "Upload Excel"}
+              <Upload className="h-3.5 w-3.5 mr-1.5" /> {busy ? "Reading…" : "Choose Excel"}
             </Button>
             <a href="/data/sun-sports-students-2026.xlsx" download>
               <Button size="sm" variant="ghost"><Download className="h-3.5 w-3.5 mr-1.5" /> Template</Button>
             </a>
           </div>
-          <p className="text-xs text-primary flex items-center gap-1.5 pt-1">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Sheets: Student Data Entry, Coaches, Batches
+          <p className="text-xs text-muted-foreground pt-1">
+            Choosing a file only previews changes. Existing students are updated only where the sheet has a value, and their batch and attendance stay put. Replace is a separate step.
           </p>
+          {importPreview && (
+            <div className="space-y-2 rounded-lg border border-border p-3 text-sm">
+              <p>
+                Students: {importPreview.students.create} new, {importPreview.students.update} updated, {importPreview.students.unchanged} unchanged.
+                Coaches: {importPreview.coaches.create} new, {importPreview.coaches.update} updated.
+                Batches: {importPreview.batches.create} new, {importPreview.batches.update} updated.
+              </p>
+              {importPreview.studentUpdates.length > 0 && (
+                <ul className="max-h-32 overflow-y-auto text-xs text-muted-foreground space-y-1">
+                  {importPreview.studentUpdates.map((row) => (
+                    <li key={row.name}>{row.name}: {row.fields.join(", ")}</li>
+                  ))}
+                </ul>
+              )}
+              {importPreview.replaceAllowed ? (
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={replaceRoster} onChange={(e) => setReplaceRoster(e.target.checked)} />
+                  Replace the whole roster. This deletes attendance, payments, notes, students, batches, and coaches.
+                </label>
+              ) : (
+                <p className="text-xs text-muted-foreground">Replace is turned off on this server.</p>
+              )}
+              {replaceRoster && (
+                <div className="space-y-1">
+                  <p className="text-xs text-destructive">
+                    Would delete {importPreview.replaceWouldDelete.students} students, {importPreview.replaceWouldDelete.attendance} attendance rows, and {importPreview.replaceWouldDelete.payments} payments. A JSON backup downloads when the replace finishes.
+                  </p>
+                  <Input value={replacePhrase} placeholder={`Type ${importPreview.replaceConfirm}`} onChange={(e) => setReplacePhrase(e.target.value)} />
+                </div>
+              )}
+              <Button size="sm" disabled={busy || (replaceRoster && replacePhrase.trim() !== importPreview.replaceConfirm)} onClick={() => void applyImport()}>
+                {replaceRoster ? "Replace roster" : "Apply updates"}
+              </Button>
+            </div>
+          )}
         </Card>
 
         <Card title="Coaches">

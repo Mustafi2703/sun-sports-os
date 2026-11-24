@@ -901,8 +901,11 @@ portalRouter.post("/coach/notes", requireAuth("coach"), async (req, res) => {
   res.status(201).json(row);
 });
 
-/** Demo accounts for login screens */
+/** Local demo account list. Disabled in production so live phones and the default PIN are not public. */
 portalRouter.get("/demo-accounts", async (_req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not found" });
+  }
   const [parents, coaches, admin] = await Promise.all([
     prisma.user.findMany({
       where: { role: "parent" },
@@ -921,7 +924,6 @@ portalRouter.get("/demo-accounts", async (_req, res) => {
     }),
   ]);
   res.json({
-    pin: process.env.DEFAULT_PIN || "1234",
     admin: admin || { phone: "9000000001", name: "Sun Sports Team" },
     coaches,
     parents,
