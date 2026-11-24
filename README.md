@@ -43,6 +43,12 @@ npm run dev
 App: http://localhost:8080  
 Console: http://localhost:8080/app
 
+## API and database
+
+The API lives in [`server/`](server/). Production boots with `prisma migrate deploy` and does not run `db push` or the seed.
+
+Local database setup, migration workflow, environment variable names, and the one-time production baseline (take a backup first) are in [`server/README.md`](server/README.md).
+
 ## Build
 
 ```bash

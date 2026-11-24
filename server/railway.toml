@@ -1,3 +1,8 @@
+# The image command is scripts/start-prod.sh (prisma migrate deploy, then the API).
+# Do not set startCommand to db push, accept-data-loss, or the seed.
+# Before the first deploy of this setup, baseline the existing production database.
+# See README.md in this directory.
+
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
