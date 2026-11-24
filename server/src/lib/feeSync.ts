@@ -98,9 +98,7 @@ export async function refreshStudentFeeState(studentId: string, db: FeeDb = pris
   }
 }
 
-export async function ensureDefaultFeePackages() {
-  /** Distinct fee structures for 1 / 3 / 6 / 12 month packages */
-  const defaults = [
+const feePackageDefaults = [
     {
       name: "Monthly",
       description: "1-month fee structure — ₹15,000",
@@ -127,25 +125,14 @@ export async function ensureDefaultFeePackages() {
     },
   ];
 
-  for (const d of defaults) {
+/** Create a package for 1, 3, 6, and 12 months only when that duration is missing. Does not change existing rows. */
+export async function ensureDefaultFeePackages() {
+  for (const d of feePackageDefaults) {
     const existing = await prisma.feePackage.findFirst({
       where: { months: d.months },
       orderBy: { createdAt: "asc" },
     });
-    if (existing) {
-      // Keep the canonical tier amounts in sync for the four standard durations
-      await prisma.feePackage.update({
-        where: { id: existing.id },
-        data: {
-          name: d.name,
-          description: d.description,
-          monthlyAmount: d.monthlyAmount,
-          totalAmount: d.monthlyAmount * d.months,
-          active: true,
-        },
-      });
-      continue;
-    }
+    if (existing) continue;
     await prisma.feePackage.create({
       data: {
         ...d,
@@ -154,6 +141,66 @@ export async function ensureDefaultFeePackages() {
       },
     });
   }
+}
+
+export async function previewFeePackageAmountSync() {
+  const plan: { action: "create" | "update"; months: number; name: string; fromAmount?: number; toAmount: number }[] = [];
+  for (const d of feePackageDefaults) {
+    const existing = await prisma.feePackage.findFirst({
+      where: { months: d.months },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!existing) {
+      plan.push({ action: "create", months: d.months, name: d.name, toAmount: d.monthlyAmount });
+      continue;
+    }
+    if (
+      existing.name !== d.name ||
+      existing.description !== d.description ||
+      existing.monthlyAmount !== d.monthlyAmount ||
+      existing.totalAmount !== d.monthlyAmount * d.months ||
+      existing.active !== true
+    ) {
+      plan.push({
+        action: "update",
+        months: d.months,
+        name: d.name,
+        fromAmount: existing.monthlyAmount,
+        toAmount: d.monthlyAmount,
+      });
+    }
+  }
+  return plan;
+}
+
+/** Overwrite the earliest package of each standard duration. Used only by the maintenance script. */
+export async function applyFeePackageAmountSync() {
+  let changed = 0;
+  for (const d of feePackageDefaults) {
+    const existing = await prisma.feePackage.findFirst({
+      where: { months: d.months },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!existing) {
+      await prisma.feePackage.create({
+        data: { ...d, totalAmount: d.monthlyAmount * d.months, active: true },
+      });
+      changed += 1;
+      continue;
+    }
+    await prisma.feePackage.update({
+      where: { id: existing.id },
+      data: {
+        name: d.name,
+        description: d.description,
+        monthlyAmount: d.monthlyAmount,
+        totalAmount: d.monthlyAmount * d.months,
+        active: true,
+      },
+    });
+    changed += 1;
+  }
+  return changed;
 }
 
 /** Ensure Harry / Head Coach specialty has isHeadCoach privilege */

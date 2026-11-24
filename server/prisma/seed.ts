@@ -45,8 +45,8 @@ async function main() {
     await prisma.academy.create({
       data: {
         name: "Sun Sports",
-        phone: "+91 90330 02641",
-        address: "Ahmedabad, Gujarat",
+        phone: "+91 90000 00000",
+        address: "Demo Ground",
         program: "High Performance Cricket",
       },
     });
@@ -55,12 +55,12 @@ async function main() {
   }
 
   const coachData = [
-    { name: "Harry Sir", phone: "9033002641", specialty: "Head Coach" },
-    { name: "Vikas Sir", phone: "8320901989", specialty: "Batting Coach" },
-    { name: "Zala Sir", phone: "7573829550", specialty: "Bowling Coach" },
-    { name: "Akhil Sir", phone: "8160746822", specialty: "Fielding Coach" },
-    { name: "Siddhant Sir", phone: "9265752962", specialty: "Batting Coach" },
-    { name: "Utsav Sir", phone: "7990591885", specialty: "Fielding Coach" },
+    { name: "Demo Head Coach", phone: "9000000002", specialty: "Head Coach" },
+    { name: "Demo Batting Coach", phone: "9000000003", specialty: "Batting Coach" },
+    { name: "Demo Bowling Coach", phone: "9000000004", specialty: "Bowling Coach" },
+    { name: "Demo Fielding Coach", phone: "9000000005", specialty: "Fielding Coach" },
+    { name: "Demo Fitness Coach", phone: "9000000006", specialty: "Fitness Coach" },
+    { name: "Demo Assistant Coach", phone: "9000000007", specialty: "Assistant Coach" },
   ];
 
   const coaches = [];
@@ -84,27 +84,27 @@ async function main() {
       ageGroup: "Open (HP)",
       schedule: "Mon–Fri",
       time: "5:00 – 7:30 PM",
-      venue: "Sun Sports Ground",
+      venue: "Demo Ground",
       capacity: 20,
       monthlyFee: 15000,
       coachId: coaches[0].id,
     },
   });
 
-  const students = [
-    { name: "Ayaan Patel", dob: "2017-07-18", parentName: "Ronak Patel", parentPhone: "9712939753", role: "Batting", joinDate: "2026-05-19", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Hayaan Kanzaria", dob: "2016-01-24", parentName: "Ami Kanzaria", parentPhone: "8490063521", role: "All Rounder", joinDate: "2026-04-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Rishit Patel", dob: "2016-01-04", parentName: "Rajesh Verma", parentPhone: "917654321098", role: "Bowling All Rounder", joinDate: "2026-04-10", feeStatus: "overdue1", daysOverdue: 5 },
-    { name: "Riyaan Patel", dob: "2016-01-04", parentName: "Bhavesh Patel", parentPhone: "927654321098", role: "Batting All Rounder", joinDate: "2026-04-10", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Samar Desai", dob: "2016-05-20", parentName: "Aditya Desai", parentPhone: "9998060606", role: "Batsmen", joinDate: "2026-06-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Rajveer Desai", dob: "2013-12-04", parentName: "Chetna Desai", parentPhone: "9687471747", role: "Batting All Rounder", joinDate: "2026-01-01", feeStatus: "overdue8", daysOverdue: 12 },
-    { name: "Satyaraj Vaghela", dob: "2013-08-21", parentName: "Hardevsinh Vaghela", parentPhone: "9727389727", role: "WK Batsmen", joinDate: "2025-11-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Pratham Patel", dob: "2014-08-28", parentName: "Jatin Patel", parentPhone: "9824717103", role: "Batsmen", joinDate: "2025-11-01", feeStatus: "overdue1", daysOverdue: 3 },
-    { name: "Vishal Yadav", dob: "2012-03-13", parentName: "Sunil Yadav", parentPhone: "9664859001", role: "Bowling", joinDate: "2026-06-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Jash Rana", dob: "2013-04-04", parentName: "Mahipalsinh Rana", parentPhone: "9099937890", role: "Bowling All Rounder", joinDate: "2026-05-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Shwet Patel", dob: "2011-09-15", parentName: "Jigar Patel", parentPhone: "9825123397", role: "WK Batsmen", joinDate: "2026-06-01", feeStatus: "paid", daysOverdue: 0 },
-    { name: "Aditya Zala", dob: "2010-09-26", parentName: "Jitendrasinh Zala", parentPhone: "7573829550", role: "Bowling", joinDate: "2026-04-01", feeStatus: "overdue1", daysOverdue: 7 },
-  ];
+  const students = Array.from({ length: 12 }, (_, index) => {
+    const n = String(index + 1).padStart(2, "0");
+    const month = String((index % 8) + 1).padStart(2, "0");
+    return {
+      name: `Demo Student ${n}`,
+      dob: `201${index % 6}-${month}-15`,
+      parentName: `Demo Parent ${n}`,
+      parentPhone: `90000001${n}`,
+      role: index % 2 === 0 ? "Batting" : "Bowling",
+      joinDate: "2026-01-15",
+      feeStatus: index % 4 === 0 ? "overdue1" : "paid",
+      daysOverdue: index % 4 === 0 ? 3 : 0,
+    };
+  });
 
   for (const s of students) {
     await prisma.student.create({
@@ -132,6 +132,8 @@ async function main() {
     });
   }
 
+  const { ensureDefaultFeePackages } = await import("../src/lib/feeSync.js");
+  await ensureDefaultFeePackages();
   const { bootstrapPortalUsers } = await import("../src/lib/bootstrapUsers.js");
   await bootstrapPortalUsers();
 
