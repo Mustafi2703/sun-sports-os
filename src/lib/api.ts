@@ -67,6 +67,7 @@ export interface FeeLedgerMonth {
   amount: number;
   status: "paid" | "pending" | "overdue" | "upcoming";
   paidAt: string | null;
+  paymentId?: string | null;
 }
 
 export interface FeeLedgerRow {
@@ -127,6 +128,12 @@ export interface FeePayment {
   month?: string | null;
   note?: string | null;
   paidAt: string;
+  installmentId?: string | null;
+  reversedAt?: string | null;
+  reversalReason?: string | null;
+  reversedByName?: string | null;
+  reversedByRole?: string | null;
+  studentName?: string;
 }
 
 export interface AcademySnapshot {
@@ -511,6 +518,18 @@ export const api = {
       "/api/portal/coach/fee-receipts",
       { method: "POST", body: JSON.stringify(body) }
     ),
+  coachListPayments: (studentId: string) =>
+    request<FeePayment[]>(`/api/portal/coach/payments?studentId=${encodeURIComponent(studentId)}`),
+  reversePayment: (id: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/payments/${id}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  coachReversePayment: (id: string, reason: string) =>
+    request<{ ok: boolean }>(`/api/portal/coach/payments/${id}/reverse`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   updateFeeInstallment: (
     id: string,
     body: { status?: string; markPaid?: boolean; method?: string; amount?: number; daysOverdue?: number; note?: string }

@@ -25,6 +25,7 @@ import {
   refreshStudentFeeState,
   shouldEnrollFeeFromBody,
 } from "../lib/feeSync.js";
+import { FeeActionError, mapFeePayment, reverseFeePayment } from "../lib/feeReversal.js";
 
 export const api = Router();
 
@@ -308,7 +309,7 @@ api.get("/students/:id", async (req, res) => {
   const active = row.feeEnrollments[0];
   res.json({
     ...mapStudent(row),
-    payments: row.payments,
+    payments: row.payments.map(mapFeePayment),
     notes: row.notes,
     activeEnrollment: active
       ? {
@@ -564,11 +565,27 @@ api.get("/payments", async (req, res) => {
   if (req.query.studentId) where.studentId = String(req.query.studentId);
   const rows = await prisma.feePayment.findMany({
     where,
-    include: { student: true },
+    include: { student: { select: { id: true, name: true } } },
     orderBy: { paidAt: "desc" },
     take: 100,
   });
-  res.json(rows);
+  res.json(rows.map((row) => ({ ...mapFeePayment(row), studentName: row.student.name })));
+});
+
+api.post("/payments/:id/reverse", async (req, res) => {
+  try {
+    const result = await reverseFeePayment(
+      String(req.params.id),
+      { userId: req.user!.id, name: req.user!.name, role: req.user!.role },
+      String(req.body?.reason ?? "")
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
+  } catch (e) {
+    if (e instanceof FeeActionError) return res.status(e.status).json({ error: e.message });
+    console.error("reverse payment:", e);
+    res.status(500).json({ error: "Could not reverse payment" });
+  }
 });
 
 api.post("/payments", async (req, res) => {
@@ -1322,7 +1339,8 @@ api.get("/fee-metrics", async (_req, res) => {
     prisma.coach.findMany(),
   ]);
 
-  const collectedThisMonth = payments
+  const livePayments = payments.filter((p) => !p.reversedAt);
+  const collectedThisMonth = livePayments
     .filter((p) => p.month === thisMonth || monthLabelFromDate(p.paidAt) === thisMonth)
     .reduce((a, p) => a + p.amount, 0);
   const expectedThisMonth = installments
@@ -1332,7 +1350,7 @@ api.get("/fee-metrics", async (_req, res) => {
   const overdueInstallments = installments.filter((i) => i.status === "overdue").length;
   const pendingInstallments = installments.filter((i) => i.status === "pending").length;
   const packageBook = enrollments.reduce((a, e) => a + e.totalAmount, 0);
-  const collectedAll = payments.reduce((a, p) => a + p.amount, 0);
+  const collectedAll = livePayments.reduce((a, p) => a + p.amount, 0);
   const salaryBill = coaches
     .filter((c) => (c as { status?: string }).status !== "inactive")
     .reduce((a, c) => a + ((c as { salaryMonthly?: number }).salaryMonthly || 0), 0);

@@ -9,6 +9,7 @@ import {
   type StudentFormValues,
 } from "@/components/app/StudentFormDialog";
 import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
+import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { StatCard } from "@/components/app/StatCard";
@@ -25,6 +26,7 @@ import {
   type AttendanceMark,
   type CoachPortalData,
   type FeeLedger,
+  type FeePayment,
   type Student,
 } from "@/lib/api";
 import { cn, parseRupees } from "@/lib/utils";
@@ -63,6 +65,7 @@ export default function CoachHome() {
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
   const [receiptBusy, setReceiptBusy] = useState<string | null>(null);
   const [ledger, setLedger] = useState<FeeLedger | null>(null);
+  const [feeRevision, setFeeRevision] = useState(0);
 
   const [studentFilter, setStudentFilter] = useState<"all" | "overdue" | "lowatt">("all");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -827,7 +830,7 @@ export default function CoachHome() {
             <div className="space-y-6">
               <PageHeader
                 title="Fee collection"
-                description="Month-by-month history. Mark a month received once. The next month stays open until it is received."
+                description="Month-by-month history. Mark a month received once. A mistaken receipt can be reversed and stays in the history."
                 actions={
                   <Button variant="outline" onClick={() => setEditingStudent(null)}>
                     <Plus className="h-4 w-4 mr-1.5" /> Add student
@@ -877,6 +880,13 @@ export default function CoachHome() {
                 inr={inr}
                 busyKey={receiptBusy}
                 onMark={(id, name, month) => void markReceived(id, name, month)}
+                onReverse={async ({ paymentId, studentName, month, reason }) => {
+                  await api.coachReversePayment(paymentId, reason);
+                  toast.success(`${studentName}: ${month} receipt reversed`);
+                  setLedger(await api.coachFeeLedger());
+                  setFeeRevision((n) => n + 1);
+                  await refresh();
+                }}
               />
             </div>
           )}
@@ -985,7 +995,13 @@ export default function CoachHome() {
         notes={notes}
         showFees={isHeadCoach}
         canResetParentPin={isHeadCoach}
+        feeRevision={feeRevision}
         onClose={() => setDetailId(null)}
+        onFeeReversed={async () => {
+          setFeeRevision((n) => n + 1);
+          if (isHeadCoach) setLedger(await api.coachFeeLedger());
+          await refresh();
+        }}
       />
 
       <StudentFormDialog
@@ -1047,26 +1063,43 @@ function PlayerDetail({
   notes,
   showFees,
   canResetParentPin,
+  feeRevision,
   onClose,
+  onFeeReversed,
 }: {
   student: Student | null;
   batches: { id: string; name: string }[];
   notes: { id: string; studentId: string; note: string; author?: string | null; createdAt: string }[];
   showFees: boolean;
   canResetParentPin?: boolean;
+  feeRevision: number;
   onClose: () => void;
+  onFeeReversed: () => Promise<void>;
 }) {
   const batch = batches.find((b) => b.id === student?.batchId);
   const playerNotes = notes.filter((n) => n.studentId === student?.id).slice(0, 6);
   const [pin, setPin] = useState("");
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState("");
+  const [payments, setPayments] = useState<FeePayment[]>([]);
 
   useEffect(() => {
     setPin("");
     setPinError("");
     setPinBusy(false);
   }, [student?.id]);
+
+  useEffect(() => {
+    if (!student || !showFees) {
+      setPayments([]);
+      return;
+    }
+    let cancelled = false;
+    void api.coachListPayments(student.id)
+      .then((rows) => { if (!cancelled) setPayments(rows); })
+      .catch(() => { if (!cancelled) setPayments([]); });
+    return () => { cancelled = true; };
+  }, [student, showFees, feeRevision]);
 
   const resetParentPin = async () => {
     if (!student) return;
@@ -1118,11 +1151,20 @@ function PlayerDetail({
                 <p>Fielding {student.scores.fielding} · Fitness {student.scores.fitness} · Temperament {student.scores.temperament}</p>
               </div>
               {showFees && (
-                <div className="rounded-lg border border-border px-3 py-2">
+                <div className="rounded-lg border border-border px-3 py-2 space-y-2">
                   <p className="text-[11px] text-muted-foreground">Fee</p>
                   <p className="font-medium">
                     {inr(student.feeAmount)} / month · {student.feeStatus === "paid" ? "Paid" : "Due"}
                   </p>
+                  <PaymentHistoryList
+                    payments={payments}
+                    canReverse
+                    onReverse={async (paymentId, reason) => {
+                      await api.coachReversePayment(paymentId, reason);
+                      toast.success("Receipt reversed. This month is unpaid again.");
+                      await onFeeReversed();
+                    }}
+                  />
                 </div>
               )}
               {canResetParentPin && (

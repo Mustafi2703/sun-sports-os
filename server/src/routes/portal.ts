@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
 import { attendanceByBatchWeeks, attendanceGrid, recomputeAttendancePctMany } from "../lib/attendance.js";
 import { hashPin, normalizePhone, requireAuth } from "../lib/auth.js";
+import { FeeActionError, mapFeePayment, reverseFeePayment } from "../lib/feeReversal.js";
 
 export const portalRouter = Router();
 
@@ -80,7 +81,7 @@ portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
         batch: batch || null,
         coach: coach || null,
         attendanceGrid: grid,
-        payments,
+        payments: payments.map(mapFeePayment),
         feeSchedule: installments.map((i) => ({
           id: i.id,
           monthLabel: i.monthLabel,
@@ -791,6 +792,44 @@ portalRouter.get("/coach/fee-ledger", requireAuth("coach"), async (req, res) => 
   const ledger = await buildFeeLedger();
   res.setHeader("Cache-Control", "no-store");
   res.json(ledger);
+});
+
+/** Head coach — receipt history, including reversed receipts. */
+portalRouter.get("/coach/payments", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only the head coach can view fee receipts" });
+  }
+  const studentId = String(req.query.studentId || "");
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+  const rows = await prisma.feePayment.findMany({
+    where: { studentId },
+    orderBy: { paidAt: "desc" },
+    take: 100,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(rows.map(mapFeePayment));
+});
+
+/** Head coach — void one receipt. The row is kept. The month goes back to unpaid. */
+portalRouter.post("/coach/payments/:id/reverse", requireAuth("coach"), async (req, res) => {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    return res.status(403).json({ error: "Only the head coach can reverse fee receipts" });
+  }
+  try {
+    const result = await reverseFeePayment(
+      String(req.params.id),
+      { userId: req.user!.id, name: req.user!.name, role: "coach" },
+      String(req.body?.reason ?? "")
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json(result);
+  } catch (e) {
+    if (e instanceof FeeActionError) return res.status(e.status).json({ error: e.message });
+    console.error("coach reverse payment:", e);
+    res.status(500).json({ error: "Could not reverse payment" });
+  }
 });
 
 /** Head coach — mark this month received even when no due row exists. ₹0 is allowed. */

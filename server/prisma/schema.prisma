@@ -100,6 +100,14 @@ model FeePayment {
   note        String?
   installmentId String? @unique
   installment FeeInstallment? @relation(fields: [installmentId], references: [id], onDelete: SetNull)
+  /// Set when a head coach or admin voids this receipt. Null means the receipt still counts.
+  reversedAt          DateTime?
+  reversalReason      String?
+  reversedByUserId    String?
+  reversedByName      String?
+  reversedByRole      String?
+  /// Installment this receipt belonged to. Kept after installmentId is cleared so a later receipt can use that installment.
+  voidedInstallmentId String?
   createdAt   DateTime @default(now())
 }
 

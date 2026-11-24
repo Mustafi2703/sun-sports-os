@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { MessageCircle, Phone, Calendar, Pencil, Trash2, Loader2 } from "lucide-react";
+import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { useAcademy } from "@/context/AcademyContext";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { AttendanceGridDay, FeePayment, Student } from "@/lib/api";
 
@@ -19,7 +21,7 @@ export const StudentDetailModal = ({
   onEdit?: (s: Student) => void;
   onDelete?: (s: Student) => void;
 }) => {
-  const { students, getBatch, getCoach, initialsOf, initialsColor, inr, api } = useAcademy();
+  const { students, getBatch, getCoach, initialsOf, initialsColor, inr, api, refresh } = useAcademy();
   const student = studentId ? students.find((s) => s.id === studentId) ?? null : null;
   const [grid, setGrid] = useState<AttendanceGridDay[]>([]);
   const [payments, setPayments] = useState<FeePayment[]>([]);
@@ -145,20 +147,20 @@ export const StudentDetailModal = ({
                 )}
                 {loadingExtra ? (
                   <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
-                ) : payments.length === 0 ? (
-                  <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border p-4">No payments recorded yet.</p>
                 ) : (
-                  <div className="space-y-1.5">
-                    {payments.map((f) => (
-                      <div key={f.id} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
-                        <span className="text-sm">{f.month || new Date(f.paidAt).toLocaleDateString("en-IN")}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">{inr(f.amount)}</span>
-                          <Badge variant="outline" className="bg-primary/15 text-primary border-primary/30">{f.method}</Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <PaymentHistoryList
+                    payments={payments}
+                    canReverse
+                    onReverse={async (paymentId, reason) => {
+                      await api.reversePayment(paymentId, reason);
+                      toast.success("Receipt reversed. This month is unpaid again.");
+                      const next = await api.listPayments(student.id).catch(() => [] as FeePayment[]);
+                      setPayments(next);
+                      const enrollments = await api.listFeeEnrollments({ studentId: student.id, status: "active" }).catch(() => []);
+                      setEnrollment((enrollments[0] as typeof enrollment) || null);
+                      await refresh();
+                    }}
+                  />
                 )}
               </section>
 
