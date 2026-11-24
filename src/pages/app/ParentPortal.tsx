@@ -144,9 +144,6 @@ const ParentPortal = () => {
               </div>
             )}
 
-            {student.feeStatus !== "paid" && (
-              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">Pay Now</Button>
-            )}
             <Button variant="outline" className="w-full"><MessageCircle className="h-4 w-4 mr-2" /> Message Coach</Button>
           </div>
         </div>

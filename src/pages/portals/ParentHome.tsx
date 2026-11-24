@@ -277,7 +277,7 @@ export default function ParentHome() {
               dashboardNotes={dashboardNotes}
               overdueCount={overdueKids.length}
               tournaments={data.tournaments ?? []}
-              onPay={() => setTab("fees")}
+              onOpenFees={() => setTab("fees")}
               onAttendance={() => setTab("attendance")}
               onProgress={() => setTab("progress")}
               onMessage={() => toast.info("WhatsApp academy: +91 90330 02641")}
@@ -451,7 +451,7 @@ function HomeTab({
   dashboardNotes,
   overdueCount,
   tournaments,
-  onPay,
+  onOpenFees,
   onAttendance,
   onProgress,
   onMessage,
@@ -465,7 +465,7 @@ function HomeTab({
   dashboardNotes: { child: ParentChild; note: ParentNote }[];
   overdueCount: number;
   tournaments: TournamentSummary[];
-  onPay: () => void;
+  onOpenFees: () => void;
   onAttendance: () => void;
   onProgress: () => void;
   onMessage: () => void;
@@ -488,13 +488,6 @@ function HomeTab({
       <PageHeader
         title="Welcome back"
         description={`Here's what's happening for ${child.name} at Sun Sports.`}
-        actions={
-          child.feeStatus !== "paid" ? (
-            <Button className="bg-primary text-primary-foreground" onClick={onPay}>
-              <CreditCard className="h-4 w-4 mr-2" /> Pay fees
-            </Button>
-          ) : undefined
-        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -582,7 +575,7 @@ function HomeTab({
           title={overdueCount ? `${overdueCount} fee alert${overdueCount > 1 ? "s" : ""}` : "Fees up to date"}
           desc={overdueCount ? "Clear dues to keep sessions uninterrupted." : "No overdue fees for your children."}
           cta="Open Fees"
-          onClick={onPay}
+          onClick={onOpenFees}
         />
         <AlertCard
           tone={child.attendancePct > 0 && child.attendancePct < 70 ? "warning" : "info"}
@@ -750,14 +743,6 @@ function FeesTab({ child }: { child: ParentChild }) {
           </div>
           <CreditCard className="h-8 w-8 text-primary opacity-60" />
         </div>
-        {child.feeStatus !== "paid" && (
-          <Button
-            className="w-full sm:w-auto mt-4 bg-primary text-primary-foreground"
-            onClick={() => toast.info("Pay via UPI at academy desk or WhatsApp +91 90330 02641")}
-          >
-            Pay {inr(child.feeAmount)} now
-          </Button>
-        )}
       </div>
 
       {(child.feeSchedule?.length ?? 0) > 0 && (
