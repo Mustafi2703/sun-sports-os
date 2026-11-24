@@ -24,6 +24,7 @@ export type StudentFormValues = {
   parentName: string;
   parentPhone: string;
   parentEmail: string;
+  parentPin: string;
   batchId: string;
   role: string;
   feeStatus: string;
@@ -93,6 +94,7 @@ const empty = (batches: Batch[], packages: FeePackageOption[]): StudentFormValue
     parentName: "",
     parentPhone: "",
     parentEmail: "",
+    parentPin: "",
     batchId: batches[0]?.id || "",
     role: "",
     feeStatus: "paid",
@@ -161,6 +163,7 @@ export function StudentFormDialog({
         parentName: student.parentName || "",
         parentPhone: student.parentPhone || "",
         parentEmail: student.parentEmail || "",
+        parentPin: "",
         batchId: student.batchId || batches[0]?.id || "",
         role: student.role || "",
         feeStatus: student.feeStatus,
@@ -224,6 +227,19 @@ export function StudentFormDialog({
             />
             <p className="text-[11px] text-muted-foreground mt-1">
               Creates/updates the parent portal account for this number.
+            </p>
+          </Field>
+          <Field label="Starting PIN (optional)">
+            <Input
+              value={form.parentPin}
+              onChange={(e) => set("parentPin", e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="4 to 6 digits"
+              maxLength={6}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Leave blank to keep the current PIN, or the shared starting PIN for a new parent. A PIN you type here is a starting PIN. The parent chooses their own at first sign-in. It is not shown again after you save.
             </p>
           </Field>
           <Field label="Parent email (for Forgot PIN)">

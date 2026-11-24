@@ -262,6 +262,21 @@ On a production machine also set `ALLOW_MAINTAIN=yes` for that command only. Do 
 
 Opening Fees still creates a missing 1, 3, 6, or 12 month package. It does not change a package that already exists. `npm run db:seed` does the same on an empty roster, then creates demo portal users. An empty database does not need the old startup rewrites.
 
+## Parent logins
+
+Internal team: open **Parents** in the app sidebar (`/app/parents`). Head coach: Coach portal, **Players**, **Import parent logins**. Plain coaches do not see it.
+
+1. Upload a CSV or Excel file, or paste rows. Expected columns: `student name`, `parent name`, `parent phone`, and optional `pin`.
+2. Preview matches each row to an existing student by name and writes nothing. Siblings can share one 10-digit phone. Rows can be a new parent, an update (before and after), unchanged, or a problem (no student, ambiguous name, invalid phone, or the same phone with two parent names).
+3. Tick the rows to keep. Tick the confirm line. Apply sends `APPLY PARENT IMPORT` and writes only those rows.
+4. Apply creates or updates parent logins and the student parent name and phone. It does not change attendance, fees, payments, packages, batches, or other student fields. PINs are stored as hashes and are not shown again.
+
+A starting PIN (typed on the student form, on Settings portal users, on Set starting PIN, or in the `pin` column) must be changed at the parent's next sign-in. Leave it blank to keep today's shared starting PIN. Parents who already chose their own PIN are not asked again. Coaches and the internal team are not asked because of the shared PIN.
+
+The migration is `20251124180000_parent_import_log`. It only creates `ParentImportLog`. `mustChangePin` and `pinChangedAt` already exist on `User` from the baseline, default false and null. This release does not rewrite those columns. No new environment variables.
+
+Railway boot already runs `prisma migrate deploy`, which creates the new table. If production has not marked the baseline applied yet, do that first (see above). Do not use `db push` or `--accept-data-loss`.
+
 ## Excel import
 
 Admin only.

@@ -13,6 +13,7 @@ import { FeeCollectionBoard } from "@/components/app/FeeCollectionBoard";
 import { PaymentHistoryList } from "@/components/app/PaymentHistoryList";
 import { PortalShell } from "@/components/portals/PortalShell";
 import { PageHeader } from "@/components/app/PageHeader";
+import { ParentImportPanel } from "@/components/app/ParentImportPanel";
 import { StatCard } from "@/components/app/StatCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ export default function CoachHome() {
   });
   const [closureBusy, setClosureBusy] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null | undefined>(undefined);
+  const [showParentImport, setShowParentImport] = useState(false);
   const [studentBusy, setStudentBusy] = useState(false);
   const [pkgDrafts, setPkgDrafts] = useState<Record<string, string>>({});
   const [pkgBusy, setPkgBusy] = useState<string | null>(null);
@@ -334,6 +336,11 @@ export default function CoachHome() {
   };
 
   const saveStudentAsHead = async (values: StudentFormValues) => {
+    const parentPin = values.parentPin.replace(/\D/g, "");
+    if (parentPin && !/^\d{4,6}$/.test(parentPin)) {
+      toast.error("Parent PIN must be 4 to 6 digits");
+      return;
+    }
     setStudentBusy(true);
     try {
       const monthly = parseRupees(values.feeAmount, 15000);
@@ -344,6 +351,7 @@ export default function CoachHome() {
         parentName: values.parentName,
         parentPhone: values.parentPhone,
         parentEmail: values.parentEmail || undefined,
+        ...(parentPin ? { parentPin } : {}),
         batchId: values.batchId || undefined,
         role: values.role,
         feeAmount: monthly,
@@ -604,12 +612,18 @@ export default function CoachHome() {
                 }
                 actions={
                   isHeadCoach ? (
-                    <Button className="bg-primary text-primary-foreground" onClick={() => setEditingStudent(null)}>
-                      <Plus className="h-4 w-4 mr-1.5" /> Add student
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => setShowParentImport((open) => !open)}>
+                        Import parent logins
+                      </Button>
+                      <Button className="bg-primary text-primary-foreground" onClick={() => setEditingStudent(null)}>
+                        <Plus className="h-4 w-4 mr-1.5" /> Add student
+                      </Button>
+                    </div>
                   ) : undefined
                 }
               />
+              {isHeadCoach && showParentImport && <ParentImportPanel mode="coach" />}
               <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {([
                   ["all", `All (${students.length})`],
@@ -1102,8 +1116,8 @@ function PlayerDetail({
   const resetParentPin = async () => {
     if (!student) return;
     const next = pin.replace(/\D/g, "");
-    if (!/^\d{4,8}$/.test(next)) {
-      setPinError("PIN must be 4 to 8 digits");
+    if (!/^\d{4,6}$/.test(next)) {
+      setPinError("PIN must be 4 to 6 digits");
       return;
     }
     setPinBusy(true);
@@ -1180,8 +1194,8 @@ function PlayerDetail({
                           className="h-10 font-mono tracking-widest"
                           inputMode="numeric"
                           autoComplete="off"
-                          placeholder="4–8 digits"
-                          maxLength={8}
+                          placeholder="4 to 6 digits"
+                          maxLength={6}
                           value={pin}
                           onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                         />

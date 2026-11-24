@@ -13,7 +13,15 @@ import {
   writeAttendanceMarks,
 } from "../lib/attendance.js";
 import { getDefaultPin, hashPin, requireAuth } from "../lib/auth.js";
-import { syncCoachAccess, syncParentAccess, studentLinkedToParentPhone, coachLinkedToPhone } from "../lib/ensureUser.js";
+import {
+  syncCoachAccess,
+  syncParentAccess,
+  studentLinkedToParentPhone,
+  coachLinkedToPhone,
+  optionalInitialPin,
+  resetParentPinForStudent,
+} from "../lib/ensureUser.js";
+import { applyParentImportHttp, optionalImportFile, previewParentImportHttp } from "./parentImport.js";
 import { normalizePhone } from "../lib/auth.js";
 import { normalizeEmail } from "../lib/email.js";
 import {
@@ -38,6 +46,10 @@ api.get("/health", (_req, res) => {
 
 /** All academy admin routes below require Internal Team (admin) JWT */
 api.use(requireAuth("admin"));
+
+/** Parent login import. Preview writes nothing. Apply requires APPLY PARENT IMPORT and the ticked rows. */
+api.post("/parents/import/preview", optionalImportFile, (req, res) => previewParentImportHttp(req, res));
+api.post("/parents/import/apply", optionalImportFile, (req, res) => applyParentImportHttp(req, res));
 
 // ─── Snapshot / Dashboard ───────────────────────────────────────────
 api.get("/snapshot", async (_req, res) => {
@@ -339,6 +351,8 @@ api.get("/students/:id", async (req, res) => {
 });
 
 api.post("/students", async (req, res) => {
+  const pinRead = optionalInitialPin(req.body.parentPin);
+  if (pinRead.error) return res.status(400).json({ error: pinRead.error });
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "name required" });
   const parentPhone = normalizePhone(req.body.parentPhone);
@@ -384,6 +398,7 @@ api.post("/students", async (req, res) => {
       newPhone: row.parentPhone,
       parentName: row.parentName,
       parentEmail: row.parentEmail,
+      initialPin: pinRead.pin,
     });
   } catch (e) {
     console.warn("ensureParentUser:", e);
@@ -420,6 +435,9 @@ api.post("/students", async (req, res) => {
 
 api.put("/students/:id", async (req, res) => {
   try {
+    const pinRead = optionalInitialPin(req.body.parentPin);
+    if (pinRead.error) return res.status(400).json({ error: pinRead.error });
+
     const existing = await prisma.student.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: "Student not found" });
 
@@ -490,6 +508,7 @@ api.put("/students/:id", async (req, res) => {
         newPhone: row.parentPhone,
         parentName: row.parentName,
         parentEmail: row.parentEmail,
+        initialPin: pinRead.pin,
       });
     } catch (e) {
       console.warn("ensureParentUser:", e);
@@ -946,8 +965,14 @@ api.post("/users", async (req, res) => {
       });
     }
   }
-  const pin = String(req.body.pin || getDefaultPin()).trim();
-  if (!pin) return res.status(400).json({ error: "PIN required" });
+  const suppliedPin = String(req.body.pin || "").trim();
+  if (suppliedPin && role === "parent" && !/^\d{4,6}$/.test(suppliedPin)) {
+    return res.status(400).json({ error: "PIN must be 4 to 6 digits" });
+  }
+  if (suppliedPin && role !== "parent" && !/^\d{4,8}$/.test(suppliedPin)) {
+    return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+  }
+  const pin = suppliedPin || getDefaultPin();
 
   try {
     const row = await prisma.user.create({
@@ -959,6 +984,7 @@ api.post("/users", async (req, res) => {
         email,
         coachId: req.body.coachId || null,
         parentPhone: role === "parent" ? phone : null,
+        mustChangePin: role === "parent",
       },
     });
     res.status(201).json({
@@ -978,6 +1004,8 @@ api.post("/users", async (req, res) => {
 
 api.put("/users/:id", async (req, res) => {
   try {
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: "User not found" });
     const data: {
       name?: string;
       pinHash?: string;
@@ -989,9 +1017,16 @@ api.put("/users/:id", async (req, res) => {
     } = {};
     if (req.body.name != null) data.name = String(req.body.name).trim();
     if (req.body.pin) {
-      data.pinHash = await hashPin(String(req.body.pin).trim());
-      data.mustChangePin = false;
-      data.pinChangedAt = new Date();
+      const pin = String(req.body.pin).trim();
+      if (existing.role === "parent") {
+        if (!/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4 to 6 digits" });
+        data.pinHash = await hashPin(pin);
+        data.mustChangePin = true;
+        data.pinChangedAt = null;
+      } else {
+        if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+        data.pinHash = await hashPin(pin);
+      }
     }
     if (req.body.email !== undefined) data.email = normalizeEmail(req.body.email);
     if (req.body.coachId !== undefined) data.coachId = req.body.coachId || null;
@@ -1012,6 +1047,35 @@ api.put("/users/:id", async (req, res) => {
   } catch {
     res.status(404).json({ error: "User not found" });
   }
+});
+
+api.post("/users/:id/reset-pin", async (req, res) => {
+  const pin = String(req.body.pin || "").replace(/\D/g, "");
+  if (!/^\d{4,6}$/.test(pin)) return res.status(400).json({ error: "PIN must be 4 to 6 digits" });
+  const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: "User not found" });
+  if (existing.role !== "parent") {
+    return res.status(400).json({ error: "This reset is for parent logins" });
+  }
+  await prisma.user.update({
+    where: { id: existing.id },
+    data: {
+      pinHash: await hashPin(pin),
+      mustChangePin: true,
+      pinChangedAt: null,
+    },
+  });
+  res.json({
+    ok: true,
+    mustChangePin: true,
+    message: "Starting PIN saved. The parent must choose a new PIN after signing in.",
+  });
+});
+
+api.post("/students/:id/reset-parent-pin", async (req, res) => {
+  const result = await resetParentPinForStudent(String(req.params.id), String(req.body.pin || ""));
+  if (!("body" in result)) return res.status(result.status).json({ error: result.error });
+  res.json(result.body);
 });
 
 api.delete("/users/:id", async (req, res) => {

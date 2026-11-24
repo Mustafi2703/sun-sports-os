@@ -266,6 +266,21 @@ model OtpChallenge {
   @@index([expiresAt])
 }
 
+/// Who applied a parent-login import, and when. Rows store counts and student ids, never PINs.
+model ParentImportLog {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  actorUserId  String?
+  actorName    String
+  actorRole    String
+  appliedCount Int      @default(0)
+  createdCount Int      @default(0)
+  updatedCount Int      @default(0)
+  summary      Json?
+
+  @@index([createdAt])
+}
+
 /// Tournaments — matches + stats stored as JSON for flexibility
 model Tournament {
   id          String   @id @default(cuid())

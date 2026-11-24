@@ -136,8 +136,8 @@ export function ForceChangePin() {
         <div className="space-y-1">
           <h1 className="font-display text-xl font-bold">Choose your PIN</h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            {user?.name ? `${user.name}, you` : "You"} signed in with the temporary PIN from email. Choose a new PIN
-            now. You will use it the next time you sign in.
+            {user?.name ? `${user.name}, you` : "You"} signed in with a starting PIN. Choose your own PIN before you
+            continue. You will use it the next time you sign in.
           </p>
         </div>
         <ChangePinForm forced onSuccess={markPinChanged} />

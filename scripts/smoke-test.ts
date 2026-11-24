@@ -26,6 +26,22 @@ async function req(path: string, init?: RequestInit & { token?: string }) {
   return { status: res.status, ok: res.ok, json };
 }
 
+async function openParentPortal(phone: string, token: string) {
+  const first = await req("/api/portal/parent", { token });
+  const code = (first.json as { code?: string } | null)?.code;
+  if (first.status !== 403 || code !== "MUST_CHANGE_PIN") return first;
+  const digits = phone.replace(/\D/g, "").slice(-10);
+  const fixture = digits.startsWith("900000") || digits.startsWith("98000");
+  if (!fixture) return first;
+  const changed = await req("/api/auth/change-pin", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ newPin: "654321" }),
+  });
+  if (!changed.ok) return first;
+  return req("/api/portal/parent", { token });
+}
+
 async function run() {
   const results: Result[] = [];
   const assert = (name: string, ok: boolean, detail?: string) => {
@@ -114,7 +130,7 @@ async function run() {
     assert("POST /api/auth/login parent", r.ok && !!parentToken, `${preferred?.name} ${parentPhone}`);
   }
   {
-    const r = await req("/api/portal/parent", { token: parentToken });
+    const r = await openParentPortal(parentPhone, parentToken);
     const kids = (r.json as { children?: unknown[] })?.children ?? [];
     assert("GET /api/portal/parent", r.ok && kids.length >= 1, `children=${kids.length}`);
   }
@@ -267,7 +283,7 @@ async function run() {
         body: JSON.stringify({ phone: "9800011122", pin: PIN, portal: "parent" }),
       })
     ).json as { token?: string };
-    const before = await req("/api/portal/parent", { token: parentTok.token });
+    const before = await openParentPortal("9800011122", parentTok.token || "");
     const kids = (before.json as { children?: { id: string; name: string; feeStatus: string; scores: { batting: number } }[] })
       ?.children || [];
     const kid = kids.find((c) => c.id === studentId);
@@ -309,9 +325,7 @@ async function run() {
       body: JSON.stringify({ phone: newPhone, pin: PIN, portal: "parent" }),
     });
     assert("New parent phone can login after update", newLogin.ok, String(newLogin.status));
-    const newPortal = await req("/api/portal/parent", {
-      token: (newLogin.json as { token?: string }).token,
-    });
+    const newPortal = await openParentPortal(newPhone, (newLogin.json as { token?: string }).token || "");
     const newKids = (newPortal.json as { children?: { id: string }[] })?.children || [];
     assert("New parent phone sees the student", newKids.some((c) => c.id === studentId));
   }

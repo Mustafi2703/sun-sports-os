@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/prisma.js";
 import { mapBatch, mapCoach, mapStudent } from "../lib/mappers.js";
 import {
@@ -9,8 +9,9 @@ import {
   parseSessionDate,
   writeAttendanceMarks,
 } from "../lib/attendance.js";
-import { hashPin, normalizePhone, requireAuth } from "../lib/auth.js";
+import { normalizePhone, parentNeedsPinChange, requireAuth } from "../lib/auth.js";
 import { FeeActionError, mapFeePayment, reverseFeePayment } from "../lib/feeReversal.js";
+import { applyParentImportHttp, optionalImportFile, previewParentImportHttp } from "./parentImport.js";
 
 export const portalRouter = Router();
 
@@ -43,6 +44,14 @@ function mapTournament(row: {
 /** Parent: children + fees + attendance + progress + tournaments for those kids only */
 portalRouter.get("/parent", requireAuth("parent"), async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  const account = await prisma.user.findUnique({ where: { id: req.user!.id } });
+  if (!account) return res.status(401).json({ error: "User not found" });
+  if (await parentNeedsPinChange(account)) {
+    return res.status(403).json({
+      error: "Choose a new PIN before continuing",
+      code: "MUST_CHANGE_PIN",
+    });
+  }
   const phone = normalizePhone(req.user!.parentPhone || req.user!.phone);
   const students = await prisma.student.findMany({
     where: { parentPhone: { not: null } },
@@ -510,7 +519,7 @@ portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
     return res.status(403).json({ error: "Only head coach can add students" });
   }
   const { ageFromDob, mapStudent } = await import("../lib/mappers.js");
-  const { syncParentAccess } = await import("../lib/ensureUser.js");
+  const { optionalInitialPin, syncParentAccess } = await import("../lib/ensureUser.js");
   const {
     enrollStudentOnFeePlan,
     feePlanInputFromBody,
@@ -518,6 +527,9 @@ portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
     optionalRupees,
     shouldEnrollFeeFromBody,
   } = await import("../lib/feeSync.js");
+
+  const pinRead = optionalInitialPin(req.body.parentPin);
+  if (pinRead.error) return res.status(400).json({ error: pinRead.error });
 
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "name required" });
@@ -556,7 +568,12 @@ portalRouter.post("/coach/students", requireAuth("coach"), async (req, res) => {
     },
   });
   try {
-    await syncParentAccess({ oldPhone: null, newPhone: row.parentPhone, parentName: row.parentName });
+    await syncParentAccess({
+      oldPhone: null,
+      newPhone: row.parentPhone,
+      parentName: row.parentName,
+      initialPin: pinRead.pin,
+    });
   } catch (e) {
     console.warn("ensureParentUser:", e);
   }
@@ -594,13 +611,16 @@ portalRouter.put("/coach/students/:id", requireAuth("coach"), async (req, res) =
     return res.status(403).json({ error: "Only head coach can edit students" });
   }
   const { ageFromDob, mapStudent } = await import("../lib/mappers.js");
-  const { syncParentAccess } = await import("../lib/ensureUser.js");
+  const { optionalInitialPin, syncParentAccess } = await import("../lib/ensureUser.js");
   const {
     enrollStudentOnFeePlan,
     feePlanInputFromBody,
     feeRatesFromBody,
     shouldEnrollFeeFromBody,
   } = await import("../lib/feeSync.js");
+
+  const pinRead = optionalInitialPin(req.body.parentPin);
+  if (pinRead.error) return res.status(400).json({ error: pinRead.error });
 
   const id = String(req.params.id);
   try {
@@ -650,6 +670,7 @@ portalRouter.put("/coach/students/:id", requireAuth("coach"), async (req, res) =
         oldPhone: existing.parentPhone,
         newPhone: row.parentPhone,
         parentName: row.parentName,
+        initialPin: pinRead.pin,
       });
     } catch (e) {
       console.warn("ensureParentUser:", e);
@@ -718,43 +739,11 @@ portalRouter.post("/coach/students/:id/reset-parent-pin", requireAuth("coach"), 
   if (!coach?.isHeadCoach) {
     return res.status(403).json({ error: "Only head coach can reset parent PINs" });
   }
-
-  const pin = String(req.body.pin || "").replace(/\D/g, "");
-  if (!/^\d{4,8}$/.test(pin)) {
-    return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
-  }
-
-  const id = String(req.params.id);
-  const student = await prisma.student.findUnique({ where: { id } });
-  if (!student) return res.status(404).json({ error: "Student not found" });
-
-  const phone = normalizePhone(student.parentPhone);
-  if (!phone || phone.length < 10) {
-    return res.status(400).json({ error: "This student has no parent WhatsApp on file" });
-  }
-
-  const { ensureParentUser } = await import("../lib/ensureUser.js");
-  const parent = await ensureParentUser(phone, student.parentName, student.parentEmail);
-  if (!parent) {
-    return res.status(400).json({ error: "Could not find or create the parent portal login" });
-  }
-
-  await prisma.user.update({
-    where: { id: parent.id },
-    data: {
-      pinHash: await hashPin(pin),
-      mustChangePin: true,
-      pinChangedAt: null,
-    },
-  });
-
-  res.json({
-    ok: true,
-    parentPhone: phone,
-    parentName: parent.name,
-    mustChangePin: true,
-    message: "Parent PIN updated. They must choose a new PIN after signing in.",
-  });
+  const { resetParentPinForStudent } = await import("../lib/ensureUser.js");
+  const result = await resetParentPinForStudent(String(req.params.id), String(req.body.pin || ""));
+  if ("error" in result && result.status !== 200) return res.status(result.status).json({ error: result.error });
+  if (!("body" in result)) return res.status(400).json({ error: "Could not reset the parent PIN" });
+  res.json(result.body);
 });
 
 portalRouter.post("/coach/fee-enrollments", requireAuth("coach"), async (req, res) => {
@@ -908,6 +897,27 @@ portalRouter.post("/coach/notes", requireAuth("coach"), async (req, res) => {
     data: { studentId, note, author: req.user!.name },
   });
   res.status(201).json(row);
+});
+
+async function requireHeadCoach(req: Request, res: Response) {
+  const coach = await resolveCoach(req);
+  if (!coach?.isHeadCoach) {
+    res.status(403).json({ error: "Only the head coach can import parent logins" });
+    return null;
+  }
+  return coach;
+}
+
+/** Head coach — preview parent login import. Writes nothing. */
+portalRouter.post("/coach/parents/import/preview", requireAuth("coach"), optionalImportFile, async (req, res) => {
+  if (!(await requireHeadCoach(req, res))) return;
+  return previewParentImportHttp(req, res);
+});
+
+/** Head coach — apply ticked parent login rows. */
+portalRouter.post("/coach/parents/import/apply", requireAuth("coach"), optionalImportFile, async (req, res) => {
+  if (!(await requireHeadCoach(req, res))) return;
+  return applyParentImportHttp(req, res);
 });
 
 /** Local demo account list. Disabled in production so live phones and the default PIN are not public. */

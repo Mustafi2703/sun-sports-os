@@ -21,6 +21,7 @@ import Reports from "./pages/app/Reports";
 import AppSettings from "./pages/app/Settings";
 import Tournaments from "./pages/app/Tournaments";
 import CoachesPage from "./pages/app/Coaches";
+import Parents from "./pages/app/Parents";
 import ParentHome from "./pages/portals/ParentHome";
 import CoachHome from "./pages/portals/CoachHome";
 
@@ -72,6 +73,7 @@ const App = () => (
             <Route path="/app" element={<AdminShell />}>
               <Route index element={<Dashboard />} />
               <Route path="students" element={<Students />} />
+              <Route path="parents" element={<Parents />} />
               <Route path="batches" element={<Batches />} />
               <Route path="fees" element={<Fees />} />
               <Route path="attendance" element={<Attendance />} />

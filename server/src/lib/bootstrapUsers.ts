@@ -110,6 +110,7 @@ export async function bootstrapPortalUsers(options?: { syncExisting?: boolean })
           role: "parent",
           name: info.name,
           parentPhone: phone,
+          mustChangePin: true,
           ...(info.email ? { email: info.email } : {}),
         },
       });

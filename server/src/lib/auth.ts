@@ -87,6 +87,24 @@ export function getDefaultPin(): string {
   return DEFAULT_PIN();
 }
 
+/**
+ * Parents on a starting PIN must choose their own before the portal opens.
+ * A parent who already changed PIN (pinChangedAt) is not asked again.
+ * Coaches and admins are unchanged, except an explicit mustChangePin from PIN recovery.
+ * This does not write the user row.
+ */
+export async function parentNeedsPinChange(user: {
+  role: string;
+  mustChangePin: boolean;
+  pinChangedAt: Date | null;
+  pinHash: string;
+}): Promise<boolean> {
+  if (user.role !== "parent") return Boolean(user.mustChangePin);
+  if (user.pinChangedAt) return false;
+  if (user.mustChangePin) return true;
+  return verifyPin(getDefaultPin(), user.pinHash);
+}
+
 export function extractBearer(req: Request): string | null {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return null;
