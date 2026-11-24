@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import {
   addMonths,
@@ -7,6 +8,8 @@ import {
   parseMonthLabel,
   studentFeeFieldsFromInstallment,
 } from "./fees.js";
+
+type FeeDb = PrismaClient | Prisma.TransactionClient;
 
 export {
   monthLabelFromDate,
@@ -26,12 +29,17 @@ export function optionalRupees(value: unknown): number | undefined {
 }
 
 /** Refresh overdue flags, then sync student.fee* from the next open installment. */
-export async function refreshStudentFeeState(studentId: string) {
+export async function refreshStudentFeeState(studentId: string, db: FeeDb = prisma) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const open = await prisma.feeInstallment.findMany({
-    where: { studentId, status: { in: ["pending", "overdue"] } },
+  const openWhere = {
+    studentId,
+    status: { in: ["pending", "overdue"] },
+    enrollment: { status: { in: ["active", "completed"] } },
+  };
+  const open = await db.feeInstallment.findMany({
+    where: openWhere,
     orderBy: { dueDate: "asc" },
   });
 
@@ -39,24 +47,24 @@ export async function refreshStudentFeeState(studentId: string) {
     const days = daysBetween(inst.dueDate, today);
     const status = days > 0 ? "overdue" : "pending";
     if (inst.status !== status || inst.daysOverdue !== days) {
-      await prisma.feeInstallment.update({
+      await db.feeInstallment.update({
         where: { id: inst.id },
         data: { status, daysOverdue: days },
       });
     }
   }
 
-  const next = await prisma.feeInstallment.findFirst({
-    where: { studentId, status: { in: ["pending", "overdue"] } },
+  const next = await db.feeInstallment.findFirst({
+    where: openWhere,
     orderBy: { dueDate: "asc" },
   });
 
   if (!next) {
-    const last = await prisma.feeInstallment.findFirst({
+    const last = await db.feeInstallment.findFirst({
       where: { studentId },
       orderBy: { dueDate: "desc" },
     });
-    await prisma.student.update({
+    await db.student.update({
       where: { id: studentId },
       data: {
         feeStatus: "paid",
@@ -70,19 +78,19 @@ export async function refreshStudentFeeState(studentId: string) {
       amount: next.amount,
       daysOverdue: next.daysOverdue,
     });
-    await prisma.student.update({
+    await db.student.update({
       where: { id: studentId },
       data: fields,
     });
   }
 
-  const enrollments = await prisma.feeEnrollment.findMany({
+  const enrollments = await db.feeEnrollment.findMany({
     where: { studentId, status: "active" },
     include: { installments: true },
   });
   for (const en of enrollments) {
     if (en.installments.length && en.installments.every((i) => i.status === "paid")) {
-      await prisma.feeEnrollment.update({
+      await db.feeEnrollment.update({
         where: { id: en.id },
         data: { status: "completed" },
       });
@@ -439,6 +447,8 @@ export type FeeLedgerMonth = {
   amount: number;
   status: "paid" | "pending" | "overdue" | "upcoming";
   paidAt: string | null;
+  /** Active receipt for this month, when one exists. Null once that receipt is reversed. */
+  paymentId: string | null;
 };
 
 export type FeeLedgerRow = {
@@ -479,7 +489,7 @@ export async function buildFeeLedger(): Promise<FeeLedger> {
   const students = await prisma.student.findMany({ orderBy: { name: "asc" } });
   await Promise.all(students.map((s) => refreshStudentFeeState(s.id).catch(() => undefined)));
 
-  const [installments, enrollments] = await Promise.all([
+  const [installments, enrollments, activePayments] = await Promise.all([
     prisma.feeInstallment.findMany({
       where: {
         OR: [
@@ -487,10 +497,15 @@ export async function buildFeeLedger(): Promise<FeeLedger> {
           { status: "paid" },
         ],
       },
+      include: { payment: true },
     }),
     prisma.feeEnrollment.findMany({
       where: { status: "active" },
       orderBy: { createdAt: "desc" },
+    }),
+    prisma.feePayment.findMany({
+      where: { reversedAt: null, installmentId: null },
+      select: { id: true, studentId: true, month: true },
     }),
   ]);
 
@@ -531,16 +546,25 @@ export async function buildFeeLedger(): Promise<FeeLedger> {
       const idx = monthIndex(cursor);
       const amount = inst?.amount ?? monthlyAmount;
       if (inst?.status === "paid") {
+        let paymentId: string | null = null;
+        if (inst.payment && !inst.payment.reversedAt) paymentId = inst.payment.id;
+        if (!paymentId) {
+          const loose = activePayments.filter(
+            (p) => p.studentId === student.id && p.month && canonMonth(p.month) === label
+          );
+          if (loose.length === 1) paymentId = loose[0].id;
+        }
         months.push({
           monthLabel: label,
           amount,
           status: "paid",
           paidAt: inst.paidAt ? inst.paidAt.toISOString() : null,
+          paymentId,
         });
         continue;
       }
       if (idx > currentIdx) {
-        months.push({ monthLabel: label, amount, status: "upcoming", paidAt: null });
+        months.push({ monthLabel: label, amount, status: "upcoming", paidAt: null, paymentId: null });
         continue;
       }
       const overdue = inst?.status === "overdue" || (inst?.daysOverdue || 0) > 0 || idx < currentIdx;
@@ -549,6 +573,7 @@ export async function buildFeeLedger(): Promise<FeeLedger> {
         amount,
         status: overdue ? "overdue" : "pending",
         paidAt: null,
+        paymentId: null,
       });
     }
 

@@ -175,6 +175,53 @@ Behavior:
 
 Prisma commands load `server/.env` through that config file. Do not commit `.env`. On Railway, `DATABASE_URL` comes from the service environment, not from a file.
 
+## Reverse a mistaken fee receipt
+
+Head coaches (Coach portal, Fees, and the player detail) and admins (Fees, and the player payment list) can reverse a receipt. The dialog requires a reason. The receipt row stays, with who reversed it and when. That month goes back to unpaid. Reversed receipts are left out of revenue, fee totals, and the parent "paid" status. They still show in payment history as reversed.
+
+Plain coaches and parents cannot call the reversal API.
+
+The schema change is migration `20251124120000_fee_payment_reversal`. It only adds nullable columns on `FeePayment`. Existing rows are unchanged until someone reverses one receipt.
+
+This branch includes the baseline migration from PR #1. On the live database, mark that baseline applied (see above) before `migrate deploy` runs. `migrate deploy` then runs only the new column migration. Do not use `db push` or `--accept-data-loss`.
+
+### After the new app is deployed
+
+Open the player on Fees, choose Reverse, and enter the reason. That is the normal fix for the receipt that was marked received by mistake.
+
+### Before the new screens are deployed
+
+The columns have to exist first. From `server/` on this branch, with `DATABASE_URL` pointed at the database and a backup already taken:
+
+```bash
+npx prisma migrate deploy
+```
+
+On the current production database this fails with P3005 until the baseline is marked applied. Follow the baseline steps above, then run `migrate deploy` again. It adds the nullable columns and does not rewrite payment rows. The old API keeps running. Extra nullable columns are ignored by the old Prisma client.
+
+Then reverse that one id. Replace the id and the reason:
+
+```bash
+PAYMENT_ID="the-payment-id" \
+REASON="Marked received by mistake" \
+REVERSE_CONFIRM=yes \
+npx tsx scripts/reverse-one-payment.ts
+```
+
+Add `ALLOW_PAYMENT_REVERSAL=yes` on that command only when `NODE_ENV=production`. Do not set it on the Railway service. The script prints the receipt first and updates that id only.
+
+To find the id:
+
+```sql
+SELECT p.id, s.name, p.amount, p.month, p.method, p."paidAt", p.note
+FROM "FeePayment" p
+JOIN "Student" s ON s.id = p."studentId"
+WHERE p."reversedAt" IS NULL
+ORDER BY p."paidAt" DESC;
+```
+
+`server/scripts/reverse-one-payment.sql` is the SQL version of the same one-id update. Edit the payment id, the reason, and `confirm := 'yes'`, then run the file in one session. It stops if the reversal columns are missing. It does not add those columns itself.
+
 ## Risky behavior left unchanged
 
 These are not part of the migration setup. They can still change or delete academy data. They were left as they are on purpose.

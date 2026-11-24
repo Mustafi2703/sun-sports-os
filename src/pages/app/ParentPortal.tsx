@@ -38,7 +38,7 @@ const ParentPortal = () => {
 
   const batch = getBatch(student.batchId);
   const coach = batch ? getCoach(batch.coachId) : undefined;
-  const latestPayment = payments[0];
+  const latestPayment = payments.find((p) => !p.reversedAt);
   const FEE_LABEL: Record<string, string> = { paid: "Paid", overdue1: "Overdue", overdue8: "Overdue" };
 
   return (

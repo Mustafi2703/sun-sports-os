@@ -3,8 +3,16 @@ import { Banknote, CheckCircle2, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ReversePaymentDialog } from "@/components/app/ReversePaymentDialog";
 import { cn } from "@/lib/utils";
 import type { FeeLedger, FeeLedgerMonth, FeeLedgerRow } from "@/lib/api";
+
+type ReverseTarget = {
+  paymentId: string;
+  studentName: string;
+  month: string;
+  amount: number;
+};
 
 type Filter = "due" | "received" | "all";
 const ALL_MONTHS = "all";
@@ -50,7 +58,7 @@ function monthSlice(row: FeeLedgerRow, selected: string, asOf: string): FeeLedge
   if (found) return { ...found, monthLabel: found.monthLabel };
   const current = monthIndex(asOf || monthLabel(new Date()));
   const status: FeeLedgerMonth["status"] = wanted > current ? "upcoming" : wanted < current ? "overdue" : "pending";
-  return { monthLabel: selected, amount: row.monthlyAmount, status, paidAt: null };
+  return { monthLabel: selected, amount: row.monthlyAmount, status, paidAt: null, paymentId: null };
 }
 
 export function FeeCollectionBoard({
@@ -58,15 +66,19 @@ export function FeeCollectionBoard({
   inr,
   busyKey,
   onMark,
+  onReverse,
 }: {
   ledger: FeeLedger | null;
   inr: (n: number) => string;
   busyKey: string | null;
   onMark: (studentId: string, studentName: string, month: string) => void;
+  onReverse?: (input: ReverseTarget & { reason: string }) => Promise<void>;
 }) {
   const [filter, setFilter] = useState<Filter>("due");
   const [q, setQ] = useState("");
   const [month, setMonth] = useState<string | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<ReverseTarget | null>(null);
+  const [reversing, setReversing] = useState(false);
   const selected = month || ledger?.asOfMonth || monthLabel(new Date());
   const options = useMemo(() => monthOptions(ledger), [ledger]);
 
@@ -169,7 +181,7 @@ export function FeeCollectionBoard({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Pick a month, including older months, and mark that month received. A month already received stays locked.
+        Pick a month, including older months, and mark that month received. If a receipt was marked by mistake, reverse it. The original receipt stays in the history.
       </p>
 
       {monthRows.length === 0 && (
@@ -205,9 +217,26 @@ export function FeeCollectionBoard({
                       {busyKey === key ? "…" : "Mark received"}
                     </Button>
                   ) : (
-                    <Badge variant="outline" className="text-primary border-primary/30">
-                      <CheckCircle2 className="h-3 w-3 mr-1" /> Received
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-primary border-primary/30">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Received
+                      </Badge>
+                      {onReverse && slice.paymentId ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyKey === key || reversing}
+                          onClick={() => setReverseTarget({
+                            paymentId: slice.paymentId as string,
+                            studentName: row.studentName,
+                            month: slice.monthLabel,
+                            amount: slice.amount,
+                          })}
+                        >
+                          Reverse
+                        </Button>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               </div>
@@ -255,7 +284,25 @@ export function FeeCollectionBoard({
                           {busyKey === key ? "…" : "Mark received"}
                         </Button>
                       ) : (
-                        <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Received</Badge>
+                        <div className="space-y-1.5">
+                          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Received</Badge>
+                          {onReverse && item.paymentId ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-full"
+                              disabled={busyKey === key || reversing}
+                              onClick={() => setReverseTarget({
+                                paymentId: item.paymentId as string,
+                                studentName: row.studentName,
+                                month: item.monthLabel,
+                                amount: item.amount,
+                              })}
+                            >
+                              Reverse
+                            </Button>
+                          ) : null}
+                        </div>
                       )}
                     </div>
                   );
@@ -265,6 +312,27 @@ export function FeeCollectionBoard({
           ))}
         </div>
       )}
+      <ReversePaymentDialog
+        open={!!reverseTarget}
+        title="Reverse this receipt?"
+        summary={
+          reverseTarget
+            ? `${reverseTarget.studentName}, ${reverseTarget.month}, ${inr(reverseTarget.amount)}. It will stop counting as paid.`
+            : ""
+        }
+        busy={reversing}
+        onOpenChange={(open) => { if (!open) setReverseTarget(null); }}
+        onConfirm={async (reason) => {
+          if (!reverseTarget || !onReverse) return;
+          setReversing(true);
+          try {
+            await onReverse({ ...reverseTarget, reason });
+            setReverseTarget(null);
+          } finally {
+            setReversing(false);
+          }
+        }}
+      />
     </div>
   );
 }

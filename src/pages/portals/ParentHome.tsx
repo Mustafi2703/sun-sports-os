@@ -798,18 +798,29 @@ function FeesTab({ child }: { child: ParentChild }) {
           <p className="px-5 py-6 text-sm text-muted-foreground">No payments recorded yet.</p>
         ) : (
           <div className="divide-y divide-border">
-            {child.payments.map((p) => (
-              <div key={p.id} className="px-5 py-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium">{inr(p.amount)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(p.paidAt).toLocaleDateString("en-IN")} · {p.method}
-                    {p.month ? ` · ${p.month}` : ""}
-                  </p>
+            {child.payments.map((p) => {
+              const reversed = Boolean(p.reversedAt);
+              return (
+                <div key={p.id} className="px-5 py-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className={cn("text-sm font-medium", reversed && "line-through text-muted-foreground")}>{inr(p.amount)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(p.paidAt).toLocaleDateString("en-IN")} · {p.method}
+                      {p.month ? ` · ${p.month}` : ""}
+                    </p>
+                    {reversed ? (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Reversed {p.reversedAt ? new Date(p.reversedAt).toLocaleDateString("en-IN") : ""}
+                        {p.reversalReason ? `. ${p.reversalReason}` : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Badge variant="outline" className={reversed ? "text-muted-foreground" : "text-primary border-primary/30"}>
+                    {reversed ? "Reversed" : "Paid"}
+                  </Badge>
                 </div>
-                <Badge variant="outline" className="text-primary border-primary/30">Paid</Badge>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

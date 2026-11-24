@@ -153,7 +153,7 @@ export async function monthlyRevenueFromPayments() {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const next = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
     const agg = await prisma.feePayment.aggregate({
-      where: { paidAt: { gte: d, lt: next } },
+      where: { paidAt: { gte: d, lt: next }, reversedAt: null },
       _sum: { amount: true },
     });
     series.push({
@@ -165,10 +165,17 @@ export async function monthlyRevenueFromPayments() {
 }
 
 export async function recentActivityFeed(limit = 8) {
-  const [payments, attendance] = await Promise.all([
+  const [payments, reversals, attendance] = await Promise.all([
     prisma.feePayment.findMany({
+      where: { reversedAt: null },
       include: { student: true },
       orderBy: { paidAt: "desc" },
+      take: 5,
+    }),
+    prisma.feePayment.findMany({
+      where: { reversedAt: { not: null } },
+      include: { student: true },
+      orderBy: { reversedAt: "desc" },
       take: 5,
     }),
     prisma.attendanceRecord.findMany({
@@ -188,6 +195,16 @@ export async function recentActivityFeed(limit = 8) {
       time: relativeTime(p.paidAt),
       tone: "success",
       at: p.paidAt,
+    });
+  }
+  for (const p of reversals) {
+    if (!p.reversedAt) continue;
+    items.push({
+      type: "payment-reversed",
+      text: `${p.student.name} fee receipt reversed${p.month ? ` (${p.month})` : ""}`,
+      time: relativeTime(p.reversedAt),
+      tone: "warning",
+      at: p.reversedAt,
     });
   }
   for (const a of attendance) {
