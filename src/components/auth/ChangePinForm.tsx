@@ -23,8 +23,8 @@ export function ChangePinForm({
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!/^\d{4,8}$/.test(next)) {
-      setError("PIN must be 4 to 8 digits");
+    if (!/^\d{4,6}$/.test(next)) {
+      setError("PIN must be 4 to 6 digits");
       return;
     }
     if (next !== confirm) {
@@ -73,12 +73,13 @@ export function ChangePinForm({
           type="password"
           inputMode="numeric"
           autoComplete="new-password"
-          placeholder="4–8 digits"
-          maxLength={8}
+          placeholder="4 to 6 digits"
+          maxLength={6}
           value={next}
-          onChange={(e) => setNext(e.target.value.replace(/\D/g, ""))}
+          onChange={(e) => setNext(e.target.value.replace(/\D/g, "").slice(0, 6))}
           required
         />
+        <p className="text-xs text-muted-foreground mt-1.5">Minimum 4 digits, maximum 6 digits.</p>
       </div>
       <div>
         <label className="text-xs text-muted-foreground mb-1.5 block">Confirm new PIN</label>
@@ -87,9 +88,10 @@ export function ChangePinForm({
           type="password"
           inputMode="numeric"
           autoComplete="new-password"
-          maxLength={8}
+          maxLength={6}
+          placeholder="4 to 6 digits"
           value={confirm}
-          onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))}
+          onChange={(e) => setConfirm(e.target.value.replace(/\D/g, "").slice(0, 6))}
           required
         />
       </div>
@@ -137,7 +139,7 @@ export function ForceChangePin() {
           <h1 className="font-display text-xl font-bold">Choose your PIN</h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
             {user?.name?.trim() ? `${user.name.trim()}, you` : "You"} signed in with a starting PIN. Choose your own PIN before you
-            continue. You will use it the next time you sign in.
+            continue. Minimum 4 digits, maximum 6 digits. You will use it the next time you sign in.
           </p>
         </div>
         <ChangePinForm forced onSuccess={markPinChanged} />

@@ -316,8 +316,8 @@ authRouter.post("/change-pin", requireAuth(), async (req, res) => {
 
     const newPin = String(req.body.newPin || "").replace(/\D/g, "");
     const currentPin = String(req.body.currentPin || "").trim();
-    if (!/^\d{4,8}$/.test(newPin)) {
-      return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
+    if (!/^\d{4,6}$/.test(newPin)) {
+      return res.status(400).json({ error: "PIN must be 4 to 6 digits" });
     }
 
     // Existing parents can still be on the shared starting PIN while mustChangePin is false.
