@@ -320,7 +320,11 @@ authRouter.post("/change-pin", requireAuth(), async (req, res) => {
       return res.status(400).json({ error: "PIN must be 4 to 8 digits" });
     }
 
-    if (!user.mustChangePin) {
+    // Existing parents can still be on the shared starting PIN while mustChangePin is false.
+    // Login already treats that as a forced change. Saving the new PIN must use the same rule,
+    // or the screen hides Current PIN and then rejects the save.
+    const skipCurrentPin = await parentNeedsPinChange(user);
+    if (!skipCurrentPin) {
       if (!currentPin) return res.status(400).json({ error: "Current PIN required" });
       const ok = await verifyPin(currentPin, user.pinHash);
       if (!ok) return res.status(401).json({ error: "Current PIN is incorrect" });
